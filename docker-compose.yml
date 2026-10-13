@@ -1,0 +1,22 @@
+# docker compose up -d   — then open https://<host>:8443 and finish setup in the browser.
+# To move an existing install here: start it, choose "Restore from backup" on the first screen.
+services:
+  lumina:
+    build: .
+    container_name: lumina
+    restart: unless-stopped
+    ports:
+      - "443:8443"
+      - "80:8080"
+    volumes:
+      - lumina-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  lumina-data:

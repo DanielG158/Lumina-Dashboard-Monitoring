@@ -1,0 +1,8 @@
+packages:
+  - "packages/sdk"
+  - "packages/core"
+  - "packages/ui"
+  - "packages/modules/*"
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true

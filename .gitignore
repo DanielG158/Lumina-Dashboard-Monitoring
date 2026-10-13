@@ -1,0 +1,22 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+*.local
+lumina.db
+lumina.db-shm
+lumina.db-wal
+.DS_Store
+*.log
+.pnpm-store/
+coverage/
+.turbo/
+
+# never commit instance data, keys or certificates
+data/
+*.key
+*.crt
+setup-code
+config.json
+*.tsbuildinfo

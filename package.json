@@ -1,0 +1,43 @@
+{
+  "name": "lumina",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Open-source modular homelab dashboard",
+  "scripts": {
+    "dev": "pnpm --filter @lumina/core dev & pnpm --filter @lumina/ui dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "clean": "pnpm -r clean && rm -rf node_modules",
+    "test": "pnpm build && node tests/run.mjs",
+    "test:fast": "node tests/run.mjs --no-ui"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "devDependencies": {
+    "playwright-core": "1.63.0"
+  },
+  "license": "MIT",
+  "author": "DanielG158",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DanielG158/Lumina-Dashboard-Monitoring.git"
+  },
+  "homepage": "https://github.com/DanielG158/Lumina-Dashboard-Monitoring",
+  "bugs": {
+    "url": "https://github.com/DanielG158/Lumina-Dashboard-Monitoring/issues"
+  },
+  "keywords": [
+    "homelab",
+    "dashboard",
+    "proxmox",
+    "ilo",
+    "apcupsd",
+    "uptime-kuma",
+    "monitoring",
+    "self-hosted"
+  ],
+  "packageManager": "pnpm@12.4.2"
+}
