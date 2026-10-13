@@ -5,6 +5,8 @@ const ConfigSchema = z.object({
   url: z.string().url(),
   apiKey: z.string().min(1),
   verifyTls: z.boolean().default(false),
+  /** Slug of a status page that lists your push monitors; lets Lumina read the message each push sends. */
+  statusPage: z.string().trim().max(120).optional(),
   fingerprint: z.string().optional(),
 });
 type Config = z.infer<typeof ConfigSchema>;
@@ -18,6 +20,12 @@ interface Monitor {
   status: KumaState;
   responseMs: number | null;
   certDays: number | null;
+  /** Latest message sent with a push (needs a status page), e.g. "38C". */
+  message: string | null;
+  /** First number found in that message, so it can be charted. */
+  value: number | null;
+  /** When the latest heartbeat arrived (ms). */
+  lastBeat: number | null;
 }
 
 const STATES: Record<string, KumaState> = { "0": "down", "1": "up", "2": "pending", "3": "maintenance" };
@@ -47,6 +55,9 @@ export function parseKumaMetrics(text: string): Monitor[] {
         status: "unknown",
         responseMs: null,
         certDays: null,
+        message: null,
+        value: null,
+        lastBeat: null,
       };
       byKey.set(key, mon);
     }
@@ -56,6 +67,37 @@ export function parseKumaMetrics(text: string): Monitor[] {
     else if (m[1] === "monitor_cert_days_remaining") mon.certDays = Number.isFinite(value) ? value : null;
   }
   return [...byKey.values()];
+}
+
+/** "https://kuma/status/home", "/status/home" or "home" all mean the status page "home". */
+export function statusPageSlug(input: string | undefined): string | null {
+  const t = (input ?? "").trim();
+  if (!t) return null;
+  const m = /\/status\/([^/?#]+)/.exec(t);
+  const slug = (m ? m[1] : t).replace(/^\/+|\/+$/g, "");
+  return /^[A-Za-z0-9_-]+$/.test(slug) ? slug : null;
+}
+
+const firstNumber = (text: string | null): number | null => {
+  const m = text === null ? null : /-?\d+(?:[.,]\d+)?/.exec(text);
+  return m ? Number(m[0].replace(",", ".")) : null;
+};
+
+/** Adds the latest heartbeat message of each monitor on a status page (public JSON, no key needed). */
+export function applyHeartbeats(monitors: Monitor[], page: any, beats: any): void {
+  const idByName = new Map<string, string>();
+  for (const g of page?.publicGroupList ?? []) for (const m of g.monitorList ?? []) if (m?.name) idByName.set(String(m.name), String(m.id));
+  for (const mon of monitors) {
+    const id = idByName.get(mon.name);
+    const list = id ? beats?.heartbeatList?.[id] : null;
+    const last = Array.isArray(list) && list.length ? list[list.length - 1] : null;
+    if (!last) continue;
+    const msg = typeof last.msg === "string" && last.msg.trim() ? last.msg.trim() : null;
+    mon.message = msg;
+    mon.value = firstNumber(msg);
+    const t = typeof last.time === "string" ? Date.parse(last.time.replace(" ", "T") + (/[zZ]|[+-]\d\d:?\d\d$/.test(last.time) ? "" : "Z")) : NaN;
+    mon.lastBeat = Number.isFinite(t) ? t : null;
+  }
 }
 
 export default defineModule<Config>({
@@ -71,6 +113,13 @@ export default defineModule<Config>({
       required: true,
       help: "Uptime Kuma → Settings → API Keys",
     },
+    {
+      key: "statusPage",
+      label: "Status page name (optional, for push values)",
+      type: "text",
+      placeholder: "homelab",
+      help: "To show what your Push monitors send (a temperature, a message): create a Status Page in Uptime Kuma, add the push monitors to it, and enter its name (the last part of /status/<name>). Without it Lumina only knows if the push arrived.",
+    },
     { key: "verifyTls", label: "Verify TLS certificate", type: "boolean", default: false },
     { key: "fingerprint", label: "Certificate fingerprint (optional)", type: "text", help: "SHA-256 fingerprint. When set, Lumina only talks to a device presenting exactly this certificate, even if it is self-signed. Use Detect to read it from the device." },
   ],
@@ -80,7 +129,10 @@ export default defineModule<Config>({
 
   async create(config) {
     let healthy = false;
-    const endpoint = `${config.url.replace(/\/+$/, "")}/metrics`;
+    const base = config.url.replace(/\/+$/, "");
+    const endpoint = `${base}/metrics`;
+    const slug = statusPageSlug(config.statusPage);
+    const tls = { verifyTls: config.verifyTls, fingerprint: config.fingerprint };
     return {
       async poll() {
         try {
@@ -91,7 +143,21 @@ export default defineModule<Config>({
           });
           const monitors = parseKumaMetrics(text);
           healthy = true;
+          let statusPage: { ok: boolean; error: string | null } | null = null;
+          if (slug) {
+            try {
+              const [page, beats] = await Promise.all([
+                httpText(`${base}/api/status-page/${slug}`, { headers: { accept: "application/json" }, ...tls }).then(JSON.parse),
+                httpText(`${base}/api/status-page/heartbeat/${slug}`, { headers: { accept: "application/json" }, ...tls }).then(JSON.parse),
+              ]);
+              applyHeartbeats(monitors, page, beats);
+              statusPage = { ok: true, error: null };
+            } catch (e) {
+              statusPage = { ok: false, error: `Status page "${slug}" could not be read: ${e instanceof Error ? e.message : String(e)}` };
+            }
+          }
           return {
+            statusPage,
             monitors,
             summary: {
               up: monitors.filter((x) => x.status === "up").length,
@@ -128,6 +194,7 @@ export default defineModule<Config>({
         const times = d.monitors.filter((x) => x.responseMs !== null && x.status === "up").map((x) => x.responseMs as number);
         if (times.length) m["response:avg"] = times.reduce((a, b) => a + b, 0) / times.length;
         for (const x of d.monitors.slice(0, 40)) if (x.responseMs !== null) m[`resp:${x.name}`] = x.responseMs;
+        for (const x of d.monitors.filter((y) => y.type === "push" && y.value !== null).slice(0, 20)) m[`push:${x.name}`] = x.value as number;
         return m;
       },
       actions: [],
