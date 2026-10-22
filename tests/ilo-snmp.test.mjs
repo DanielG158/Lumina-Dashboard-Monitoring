@@ -1,6 +1,7 @@
 // The HPE iLO (SNMP) module against a fake iLO that serves the CPQ health tables.
 import { fileURLToPath as __f } from "node:url";
 const ROOT = __f(new URL("..", import.meta.url)).replace(/\/$/, "");
+import { createRequire } from "node:module";
 import { startFakeHpe, GEN9_WITH_TROUBLE } from "./helpers/hpe-snmp-fake.mjs";
 
 let ok = true;
@@ -58,5 +59,11 @@ const pd = await pi.poll();
 check("a missing table does not break the rest", pd.temps.length === 4 && pd.drives.length === 0 && pd.overall === "degraded");
 await pi.dispose?.(); partial.close();
 
+// nothing listening on the port: the message names the iLO setting to change
+const closed = await new Promise((r) => { const d = createRequire(import.meta.url)("node:dgram").createSocket("udp4"); d.bind(0, "127.0.0.1", () => { const x = d.address().port; d.close(() => r(x)); }); });
+const none = await mod.create(mod.configSchema.parse({ host: "127.0.0.1", port: closed, community: "public" }), { log });
+let en = null; try { await none.poll(); } catch (x) { en = x.message; }
+check("when the iLO does not listen the message says to enable SNMP Access in the iLO's Access Settings", /Nothing is listening for SNMP/.test(en ?? "") && /Access Settings/.test(en ?? "") && /SNMP Access/.test(en ?? ""), en);
+await none.dispose?.();
 check("settings are validated like the SNMP module's", !mod.configSchema.safeParse({ host: "x" }).success && mod.configSchema.safeParse({ host: "x", community: "public" }).success);
 process.exit(ok ? 0 : 1);

@@ -145,7 +145,14 @@ export default defineModule<Config>({
         } catch (e) {
           healthy = false;
           const m = e instanceof Error ? e.message : String(e);
-          throw new Error(/timeout|timed out/i.test(m) ? explainNoAnswer(await probeUdpPort(config.host, config.port), config.host, config.port, config.version) : explainCrypto(m));
+          if (/timeout|timed out/i.test(m)) {
+            const kind = await probeUdpPort(config.host, config.port);
+            const base = explainNoAnswer(kind, config.host, config.port, config.version);
+            throw new Error(kind === "closed"
+              ? `${base} On an HPE iLO: Security, Access Settings, set "SNMP Access" to Enabled (port ${config.port}), then Management, SNMP Settings, set a read community (or an SNMPv3 user) and switch on Agentless Management.`
+              : `${base} On an HPE iLO the community is set under Management, SNMP Settings, and the iLO only answers addresses allowed there.`);
+          }
+          throw new Error(explainCrypto(m));
         }
         const v = (i: number) => dev.val(first[i]);
         const overall = cond(v(0));

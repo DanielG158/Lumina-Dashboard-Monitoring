@@ -82,7 +82,7 @@ The first load of drives, memory and logs takes about 30 seconds. Parts the iLO 
 
 If a server has no Redfish interface (ProLiant Gen7 and older, iLO 2 and iLO 3), or its iLO struggles with the many requests the Redfish module makes, read it over SNMP instead: **Add → HPE iLO (SNMP)**.
 
-1. In the iLO web page: **Administration → Management → SNMP Settings**. Turn on **Agentless Management** (iLO 4 and 5), set a read-only **community** (or an SNMPv3 user), and allow your Lumina's address. Use v3 where possible; the iLO uses md5 or sha.
+1. In the iLO web page: first **Security → Access Settings** and set **SNMP Access** to *Enabled* (port 161); without that the iLO does not listen at all. Then **Management → SNMP Settings**. Turn on **Agentless Management** (iLO 4 and 5), set a read-only **community** (or an SNMPv3 user), and allow your Lumina's address. Use v3 where possible; the iLO uses md5 or sha.
 2. In Lumina, enter the iLO's address and the community (or the v3 user and keys). If it will not connect, press **Test the SNMP settings** on the card.
 3. It shows the overall server health and which parts are not OK, power draw (from the iLO's power meter), temperatures, fans, power supplies, processors, memory modules, and the Smart Array controller, logical drives and physical drives with their temperatures. Alerts are raised for a failed or degraded part, a sensor near or over its limit, a failed fan or power supply, a failed or hot drive and a memory module with too many corrected errors. Tables the iLO does not offer are listed as "could not be read" instead of failing the card.
 
