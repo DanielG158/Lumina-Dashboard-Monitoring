@@ -69,6 +69,14 @@ check("the summary counts are shown", /Checks up\s*2\/3/.test(txt1), (txt1.match
 let txt2 = "";
 const snmpShown = await until(async () => { await expandAll(); txt2 = await page.locator("body").innerText(); return /igb0/.test(txt2) && /Mbit\/s/.test(txt2); }, 45000);
 check("the SNMP card shows the interfaces with traffic", snmpShown, snmpShown ? "" : txt2.replace(/\s+/g, " ").slice(-700));
+await page.getByRole("button", { name: "MB/s" }).first().click();
+await page.waitForTimeout(600);
+const inBytes = await page.locator("body").innerText();
+check("switching to MB/s shows traffic in megabytes per second", /\d+(\.\d+)? MB\/s/.test(inBytes) && !/Mbit\/s/.test(inBytes.split("Interface")[1] ?? ""), (inBytes.match(/Traffic in[^\n]*\n[^\n]*/) ?? [""])[0]);
+check("the unit is remembered in the browser", (await page.evaluate(() => localStorage.getItem("lumina:speedUnit"))) === "bytes");
+await page.getByRole("button", { name: "Mbit/s" }).first().click();
+await page.waitForTimeout(500);
+check("and back to Mbit/s", /Mbit\/s/.test(await page.locator("body").innerText()));
 check("anonymous viewers do not see the interface labels (WAN, LAN)", !/\bWAN\b/.test(txt2) && !/\bLAN\b(?!-)/.test(txt2.replace(/LAN-Checks/g, "")));
 check("a watched link that is down is flagged", /igb1/.test(txt2) && /watched/.test(txt2), snmpShown ? "" : txt2.replace(/\s+/g, " ").slice(0, 200));
 await page.screenshot({ path: process.env.SHOT ?? join(dir, "net.png"), fullPage: true });

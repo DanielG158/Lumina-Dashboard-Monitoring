@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
+import { useSpeedUnit } from "./components/UnitToggle";
 import { api, type AlertsPayload, type AuthStatus, type InstanceUpdate, type MaintenanceStatus, type ModuleInfo } from "./api";
 import { LoginDialog, SetupScreen } from "./components/AuthDialogs";
 import { LuminaMark } from "./components/Icons";
@@ -26,6 +27,7 @@ const byPosition = (a: InstanceUpdate, b: InstanceUpdate) => a.position - b.posi
 const EMPTY_ALERTS: AlertsPayload = { active: [], recent: [], muted: [] };
 
 export function App() {
+  useSpeedUnit(); // re-draw everything when the speed unit is switched
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [modules, setModules] = useState<ModuleInfo[]>([]);
   const [instances, setInstances] = useState<InstanceUpdate[]>([]);

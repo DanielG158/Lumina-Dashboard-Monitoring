@@ -1,4 +1,5 @@
-import { bitrate } from "../format";
+import { bitrate, mbps } from "../format";
+import { UnitToggle, useSpeedUnit } from "./UnitToggle";
 import { Spark } from "./charts";
 import { CardShell, barClass, clamp, type CardProps } from "./CardShell";
 
@@ -10,10 +11,12 @@ const uptime = (s: number | null) => (s === null ? "—" : s >= 86400 ? `${Math.
 
 export function SnmpCard(props: CardProps) {
   const d = props.instance.data as SnmpData | null;
+  useSpeedUnit();
   return (
     <CardShell {...props} tag="SNMP" historyPrefer={["traffic:in", "traffic:out"]}>
       {d && (
         <>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}><UnitToggle /></div>
           <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
             <div className="stat"><div className="label">Device</div><div className="value" style={{ fontSize: 16 }}>{d.sysName ?? "—"}</div><div className="sub" title={d.sysDescr ?? ""}>up {uptime(d.uptimeS)}</div></div>
             <div className="stat"><div className="label">Traffic in</div><div className="value" style={{ fontSize: 18 }}>{bitrate(d.interfaces.filter((i) => (d.interfaces.some((x) => x.watched) ? i.watched : i.up)).reduce((a, i) => a + (i.inBps ?? 0), 0))}</div><Spark instanceId={props.instance.instanceId} metric="traffic:in" /></div>
@@ -29,7 +32,7 @@ export function SnmpCard(props: CardProps) {
                   <tr key={i.index}>
                     <td><span className={`dot ${i.up ? "connected" : i.watched ? "disconnected" : "pending"}`} title={i.up ? "up" : "down"} /></td>
                     <td>{i.name}{i.alias && <span className="sub"> · {i.alias}</span>}{i.watched && <span className="tag" style={{ marginLeft: 6 }}>watched</span>}</td>
-                    <td className="num">{i.speedMbps ? (i.speedMbps >= 1000 ? `${i.speedMbps / 1000} Gbit/s` : `${i.speedMbps} Mbit/s`) : "—"}</td>
+                    <td className="num">{i.speedMbps ? mbps(i.speedMbps) : "—"}</td>
                     <td className="num">{bitrate(i.inBps)}</td>
                     <td className="num">{bitrate(i.outBps)}</td>
                     <td style={{ minWidth: 110 }}>

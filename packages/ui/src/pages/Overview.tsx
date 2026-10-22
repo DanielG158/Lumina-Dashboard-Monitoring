@@ -5,7 +5,7 @@ import { Icon } from "../components/Icons";
 import { ago, gather, summarize } from "../summaries";
 import { orderOf, useBurnInLayout, useDisplayPrefs } from "../shuffle";
 import { forecastText, useCycleEnergy, useForecasts } from "../hooks";
-import { clockTime, money } from "../format";
+import { clockTime, mbps, money } from "../format";
 
 function useNow(ms: number) {
   const [now, setNow] = useState(Date.now());
@@ -156,7 +156,7 @@ export function Overview({ kiosk = false, onExit }: { kiosk?: boolean; onExit?: 
       const warn = all.some((t) => t.ok && t.lossPct >= 20);
       kpis.push({
         key: "net", icon: "netcheck", label: "Network checks", value: `${up}/${all.length}`,
-        sub: [times.length ? `${Math.round(times.reduce((a, b) => a + b, 0) / times.length)} ms` : null, loss > 0 ? `${Math.round(loss)}% loss` : null, speed != null ? `↓ ${speed} Mbps` : null].filter(Boolean).join(" · ") || "all answering",
+        sub: [times.length ? `${Math.round(times.reduce((a, b) => a + b, 0) / times.length)} ms` : null, loss > 0 ? `${Math.round(loss)}% loss` : null, speed != null ? `↓ ${mbps(speed)}` : null].filter(Boolean).join(" · ") || "all answering",
         level: up < all.length ? "critical" : warn ? "warning" : "ok", go: "instances", spark: { instanceId: nets[0].instanceId, metric: "rtt:avg", unit: " ms" },
       });
     }

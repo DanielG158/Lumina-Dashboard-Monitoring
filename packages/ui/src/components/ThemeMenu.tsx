@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { UnitToggle } from "./UnitToggle";
 import { THEMES, getAccent, getShuffleMode, getShuffleSeconds, getTheme, setAccent, setShuffle, setTheme, type ShuffleMode } from "../theme";
 
 export function ThemeMenu() {
@@ -48,6 +49,7 @@ export function ThemeMenu() {
             </div>
             <span className="hint">Rearranges the tiles and panels and nudges them a few pixels, so a screen left on all day never shows the same picture for long.</span>
           </label>
+          <label className="row" style={{ justifyContent: "space-between" }}><span>Network speed units</span><UnitToggle /></label>
           <div className="hint">Saved in this browser only.</div>
         </div>
       )}

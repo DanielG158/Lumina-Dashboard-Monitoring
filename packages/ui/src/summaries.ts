@@ -1,4 +1,5 @@
 import type { InstanceUpdate } from "./api";
+import { bitrate, mbps } from "./format";
 
 type Obj = Record<string, any>;
 const data = (i: InstanceUpdate): Obj | null => (i.data && typeof i.data === "object" ? (i.data as Obj) : null);
@@ -47,12 +48,12 @@ export function summarize(i: InstanceUpdate): string {
     }
     case "netcheck": {
       const sm = d.summary as Obj | undefined;
-      return `${sm?.up ?? 0}/${(d.targets ?? []).length} checks up${sm?.avgMs != null ? ` · ${sm.avgMs} ms` : ""}${sm?.avgLossPct ? ` · ${sm.avgLossPct}% loss` : ""}${d.speed?.downMbps != null ? ` · ↓ ${d.speed.downMbps} Mbps` : ""}`;
+      return `${sm?.up ?? 0}/${(d.targets ?? []).length} checks up${sm?.avgMs != null ? ` · ${sm.avgMs} ms` : ""}${sm?.avgLossPct ? ` · ${sm.avgLossPct}% loss` : ""}${d.speed?.downMbps != null ? ` · ↓ ${mbps(d.speed.downMbps)}` : ""}`;
     }
     case "snmp": {
       const ifs = ((d.interfaces ?? []) as Obj[]).filter((x) => x.up);
       const inn = ifs.reduce((a, x) => a + (x.inBps ?? 0), 0), out = ifs.reduce((a, x) => a + (x.outBps ?? 0), 0);
-      const mb = (b: number) => (b >= 1e6 ? `${(b / 1e6).toFixed(1)} Mbit/s` : `${Math.round(b / 1e3)} kbit/s`);
+      const mb = (b: number) => bitrate(b);
       return `${d.sysName ?? "device"} · ${ifs.length} links up · ↓ ${mb(inn)} ↑ ${mb(out)}`;
     }
     default:

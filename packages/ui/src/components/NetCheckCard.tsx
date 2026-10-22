@@ -2,6 +2,8 @@ import { useState } from "react";
 import { api } from "../api";
 import { useLumina } from "../context";
 import { ago } from "../summaries";
+import { mbps } from "../format";
+import { UnitToggle, useSpeedUnit } from "./UnitToggle";
 import { Spark } from "./charts";
 import { CardShell, type CardProps } from "./CardShell";
 import { Section } from "./Section";
@@ -20,6 +22,7 @@ export function NetCheckCard(props: CardProps) {
   const d = props.instance.data as NetData | null;
   const { can, notify } = useLumina();
   const [busy, setBusy] = useState(false);
+  useSpeedUnit();
   const sid = (n: string) => `net:${props.instance.instanceId}:${n}`;
 
   async function speed() {
@@ -27,7 +30,7 @@ export function NetCheckCard(props: CardProps) {
     try {
       const r = (await api.action(props.instance.instanceId, "speedtest", {})) as { result?: Speed } & Partial<Speed>;
       const s = (r.result ?? r) as Speed;
-      notify(s.error ? s.error : `Download ${s.downMbps ?? "?"} Mbps, upload ${s.upMbps ?? "?"} Mbps`, Boolean(s.error));
+      notify(s.error ? s.error : `Download ${mbps(s.downMbps)}, upload ${mbps(s.upMbps)}`, Boolean(s.error));
       void api.refresh(props.instance.instanceId).catch(() => undefined);
     } catch (e) { notify(e instanceof Error ? e.message : String(e), true); } finally { setBusy(false); }
   }
@@ -66,14 +69,15 @@ export function NetCheckCard(props: CardProps) {
             </table>
           </div>
           {(d.speedEnabled || d.speed) && (
-            <Section id={sid("speed")} title="Internet speed" meta={d.speed ? `${d.speed.downMbps ?? "?"} ↓ · ${d.speed.upMbps ?? "?"} ↑ Mbps · ${ago(d.speed.at)}` : d.speedRunning ? "testing…" : "no test yet"}>
+            <Section id={sid("speed")} title="Internet speed" meta={d.speed ? `${mbps(d.speed.downMbps)} ↓ · ${mbps(d.speed.upMbps)} ↑ · ${ago(d.speed.at)}` : d.speedRunning ? "testing…" : "no test yet"}>
               <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))" }}>
-                <div className="stat"><div className="label">Download</div><div className="value">{d.speed?.downMbps ?? "—"}<span className="sub"> Mbps</span></div><Spark instanceId={props.instance.instanceId} metric="speed:down" range="7d" unit=" Mbps" /></div>
-                <div className="stat"><div className="label">Upload</div><div className="value">{d.speed?.upMbps ?? "—"}<span className="sub"> Mbps</span></div><Spark instanceId={props.instance.instanceId} metric="speed:up" range="7d" unit=" Mbps" /></div>
+                <div className="stat"><div className="label">Download</div><div className="value" style={{ fontSize: 22 }}>{mbps(d.speed?.downMbps)}</div><Spark instanceId={props.instance.instanceId} metric="speed:down" range="7d" unit=" Mbit/s" /></div>
+                <div className="stat"><div className="label">Upload</div><div className="value" style={{ fontSize: 22 }}>{mbps(d.speed?.upMbps)}</div><Spark instanceId={props.instance.instanceId} metric="speed:up" range="7d" unit=" Mbit/s" /></div>
                 <div className="stat"><div className="label">Response</div><div className="value">{d.speed?.latencyMs ?? "—"}<span className="sub"> ms</span></div></div>
               </div>
               {d.speed?.error && <div className="error">{d.speed.error}</div>}
               {can.operate && d.speedEnabled && <div><button className="btn sm" disabled={busy || d.speedRunning} onClick={() => void speed()}>{busy || d.speedRunning ? "Testing…" : "Run speed test now"}</button></div>}
+              <div style={{ display: "flex", justifyContent: "flex-end" }}><UnitToggle /></div>
               <div className="hint">Each test downloads and uploads test data, which uses your internet connection. Charts show the last 7 days.</div>
             </Section>
           )}

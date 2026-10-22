@@ -211,7 +211,7 @@ export default defineModule<Config>({
     { key: "speedTestMB", label: "Test size (MB)", type: "number", default: 25 },
     { key: "speedTestDownloadUrl", label: "Download test address", type: "text", default: "https://speed.cloudflare.com/__down" },
     { key: "speedTestUploadUrl", label: "Upload test address", type: "text", default: "https://speed.cloudflare.com/__up" },
-    { key: "minDownMbps", label: "Warn when download is below (Mbps)", type: "number", help: "Optional, for example 80% of what you pay for." },
+    { key: "minDownMbps", label: "Warn when download is below (Mbit/s)", type: "number", help: "Optional, for example 80% of what you pay for." },
   ],
   configSchema: ConfigSchema,
   pollIntervalMs: 30_000,
