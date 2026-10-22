@@ -156,7 +156,7 @@ Two Luminas can watch each other: devices and alerts that came from another Lumi
 
 Two modules, both added under **Instances → Add**:
 
-**Network checks** (`netcheck`). One line per check, in the form `Name | type | address`:
+**Network checks** (`netcheck`). Build the list in a form (name, type, address, and a port or DNS server where needed), on the Add dialog or later under **Network → Edit checks**. Underneath it is stored as one line per check, `Name | type | address`, which is what the examples below show:
 
 ```
 Gateway      | ping | 192.168.1.1

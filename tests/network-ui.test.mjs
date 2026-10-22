@@ -106,6 +106,55 @@ await page.waitForTimeout(500);
 check("the unit switch on the page changes the speeds to MB/s", /MB\/s/.test(await page.locator("section:has(h2:has-text('Internet speed'))").innerText()));
 await page.locator('.page-title button:has-text("Mbit/s")').click();
 
+// ---- editing the checks as a form (admin)
+{
+  const actx = await browser.newContext({ viewport: { width: 1500, height: 1100 } });
+  await actx.addCookies([{ name: "lumina_session", value: jar.cookie.split("=")[1], url: base }]);
+  const ap = await actx.newPage();
+  const aerrors = []; ap.on("pageerror", (e) => aerrors.push(e.message));
+  await ap.goto(`${base}/#/network`);
+  await ap.getByRole("button", { name: "Edit checks" }).click();
+  await ap.waitForSelector('input[aria-label="Check name"]');
+  await ap.waitForTimeout(800);
+  const names = () => ap.locator('input[aria-label="Check name"]').evaluateAll((a) => a.map((x) => x.value));
+  check("the checks appear as a form with one row each, not a block of text", JSON.stringify(await names()) === JSON.stringify(["Gateway tcp", "Web", "Dead"]) && (await ap.locator("textarea").count()) === 0, JSON.stringify(await names()));
+  if (process.env.SHOT2) await ap.screenshot({ path: process.env.SHOT2, fullPage: true });
+  check("each row shows whether it answers right now", (await ap.locator(".subpanel .dot.connected").count()) === 2 && (await ap.locator(".subpanel .dot.disconnected").count()) === 1);
+  const lastRow = () => ap.locator(".subpanel").last();
+  await ap.getByRole("button", { name: "+ Add a check" }).click();
+  await lastRow().locator('input[aria-label="Check name"]').fill("Extra port");
+  await lastRow().locator('select[aria-label="Check type"]').selectOption("tcp");
+  await lastRow().locator('input[aria-label="Address"]').fill("127.0.0.1");
+  await lastRow().locator('input[aria-label="Port"]').fill("12ab");
+  check("a TCP check gets a port box that only takes digits", (await lastRow().locator('input[aria-label="Port"]').inputValue()) === "12");
+  await lastRow().locator('input[aria-label="Port"]').fill(String(tcp.address().port));
+  check("a valid new check enables Save", await ap.getByRole("button", { name: "Save checks" }).isEnabled());
+  await ap.getByRole("button", { name: "+ Add a check" }).click();
+  await lastRow().locator('input[aria-label="Check name"]').fill("Broken");
+  await lastRow().locator('input[aria-label="Address"]').fill("not a host!");
+  await ap.waitForTimeout(300);
+  check("a bad address is flagged and blocks Save", /not a host name or IP address/.test(await ap.locator("body").innerText()) && !(await ap.getByRole("button", { name: "Save checks" }).isEnabled()));
+  await ap.getByRole("button", { name: "Remove this check" }).last().click();
+  await ap.waitForTimeout(300);
+  check("removing the bad row clears the error", await ap.getByRole("button", { name: "Save checks" }).isEnabled());
+  await ap.locator('select[aria-label="Add a common check"]').selectOption({ label: "Internet (Cloudflare 1.1.1.1)" });
+  await ap.waitForTimeout(300);
+  check("a common check can be added with one click", (await names()).includes("Internet"));
+  await ap.getByRole("button", { name: "Save checks" }).click();
+  await until(async () => /Extra port \| tcp \| 127\.0\.0\.1:\d+/.test(JSON.stringify((await api("GET", "/api/instances/LAN-Checks/config")).data)), 15000);
+  const saved = (await api("GET", "/api/instances/LAN-Checks/config")).data.config.targets;
+  check("saving stores the checks in the same one-line-per-check format", /Extra port \| tcp \| 127\.0\.0\.1:\d+/.test(saved) && /Internet \| ping \| 1\.1\.1\.1/.test(saved) && /Gateway tcp \| tcp \| 127\.0\.0\.1:\d+/.test(saved), saved.replace(/\n/g, " ; "));
+  check("the new checks start running", await until(async () => ((await api("GET", "/api/instances")).data.find((i) => i.instanceId === "LAN-Checks")?.data?.targets ?? []).some((t) => t.name === "Extra port" && t.ok), 40000));
+  // the Add dialog uses the same form
+  await ap.goto(`${base}/#/instances`);
+  await ap.getByRole("button", { name: "+ Add module" }).click();
+  await ap.locator("select").first().selectOption({ label: "Network checks" });
+  await ap.waitForTimeout(500);
+  check("adding a Network checks instance shows the form too", (await ap.locator('input[aria-label="Check name"]').count()) >= 1 && (await ap.locator(".add textarea").count()) === 0);
+  check("no browser errors in the admin pages", aerrors.length === 0, aerrors.join(" | "));
+  await actx.close();
+}
+
 // ---- history chart of the SNMP card uses readable units (history is recorded once a minute, so wait for the first point)
 check("the SNMP instance has recorded history", await until(async () => ((await api("GET", "/api/instances/Firewall/metric-keys")).data ?? []).includes("traffic:in") && ((await api("GET", "/api/instances/Firewall/metrics?keys=traffic:in&range=1h")).data?.series?.["traffic:in"] ?? []).length >= 2, 150000));
 await page.goto(`${base}/#/instances`);
@@ -131,7 +180,7 @@ check("alerts name the dead check and the down link", await until(async () => { 
 await page.getByRole("button", { name: "Overview" }).first().click();
 await page.waitForTimeout(1500);
 const ov = await page.locator("body").innerText();
-check("the Overview has a Network checks tile", /NETWORK CHECKS/i.test(ov) && /2\/3/.test(ov), (ov.match(/NETWORK CHECKS[^\n]*\n?[^\n]*/i) ?? [""])[0]);
+check("the Overview has a Network checks tile", /NETWORK CHECKS/i.test(ov) && /\d+\/\d+/.test((ov.match(/NETWORK CHECKS[^\n]*\n[^\n]*/i) ?? [""])[0]), (ov.match(/NETWORK CHECKS[^\n]*\n?[^\n]*/i) ?? [""])[0]);
 for (const [w, h] of [[1920, 1080], [1366, 768]]) {
   await page.setViewportSize({ width: w, height: h });
   await page.goto(`${base}/#/tv`); await page.waitForTimeout(2500);

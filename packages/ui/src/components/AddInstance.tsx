@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { ChecksEditor } from "./ChecksEditor";
 import { api, type ConfigField, type ModuleInfo } from "../api";
 
 interface Props {
@@ -25,6 +26,7 @@ export function AddInstance({ modules, editing, onDone, onClose }: Props) {
   const [loading, setLoading] = useState(Boolean(editing));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checksErrors, setChecksErrors] = useState<string[]>([]);
 
   useEffect(() => {
     if (!editing) return;
@@ -56,6 +58,10 @@ export function AddInstance({ modules, editing, onDone, onClose }: Props) {
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!mod) return;
+    if (mod.id === "netcheck") {
+      if (checksErrors.length > 0) { setError(`Fix the highlighted checks first: ${checksErrors[0]}`); return; }
+      if (!String(values.targets ?? "").trim()) { setError("Add at least one check."); return; }
+    }
     const config: Record<string, unknown> = {};
     for (const f of mod.fields) {
       const v = values[f.key];
@@ -112,7 +118,9 @@ export function AddInstance({ modules, editing, onDone, onClose }: Props) {
             ) : (
               <label key={f.key}>
                 {f.label}
-                {f.type === "textarea" ? (
+                {f.type === "textarea" && moduleId === "netcheck" && f.key === "targets" ? (
+                  <ChecksEditor key={`${moduleId}:${editing ?? "new"}:${loading}`} value={String(values[f.key] ?? "")} onChange={(text, errors) => { setValues((v) => (v[f.key] === text ? v : { ...v, [f.key]: text })); setChecksErrors(errors); }} />
+                ) : f.type === "textarea" ? (
                   <textarea
                     required={f.required}
                     rows={6}

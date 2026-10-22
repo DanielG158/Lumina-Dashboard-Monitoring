@@ -108,15 +108,17 @@ To let the energy page use the UPS as a power meter, nothing more is needed: the
 
 ### Network checks (ping, ports, DNS, web)
 
-No device setup is needed. **Add → Network checks** and list one check per line:
+No device setup is needed. **Add → Network checks**, then build the list in the form (nothing to type in a special format):
 
-```
-Gateway       | ping | 192.168.1.1
-Internet      | ping | 1.1.1.1
-DNS (router)  | dns  | example.com @192.168.1.1
-Proxmox web   | tcp  | 192.168.1.10:8006
-Website       | http | https://example.com
-```
+1. Press **+ Add a check**, or pick one from **+ Add a common check…** (internet ping, public DNS, a web page, a port on the internet).
+2. Give it a **name**, choose the **type**, and fill in the address:
+   - **Ping**: a host name or IP address, for example your router `192.168.1.1`.
+   - **TCP port**: a host and a port, for example `192.168.1.10` and `8006`.
+   - **DNS lookup**: a name such as `example.com` and, optionally, the DNS server to ask.
+   - **Web page**: a full address such as `https://example.com`.
+3. Mistakes are shown in red under the row, and Save stays off until they are fixed.
+
+You can change the list at any time on the **Network** tab: **Edit checks** (admins) shows every check with a dot for whether it answers right now, lets you add, remove and re-order them, and set how often to check, how many pings to send, and when to warn.
 
 Lumina records latency, jitter and packet loss, charts them, and raises alerts when a check stops answering, loses 20% of its packets or is slower than 150 ms (both limits are adjustable).
 

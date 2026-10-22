@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { api, type InstanceUpdate, type SpeedResult } from "../api";
 import { Spark } from "../components/charts";
 import { clamp, barClass } from "../components/CardShell";
+import { ChecksEditor } from "../components/ChecksEditor";
 import { UnitToggle, useSpeedUnit } from "../components/UnitToggle";
 import { bitrate, mbps } from "../format";
 import { useLumina } from "../context";
@@ -54,12 +55,83 @@ export function NetworkPage() {
             {snmps.length > 0 && <div className="stat"><div className="label">Links up</div><div className="value">{links.filter((l) => l.up).length}/{links.length}</div></div>}
           </div>
 
+          {L.can.admin && allNets.length > 0 && <ChecksPanel instances={allNets} />}
           {allNets.length > 0 && <SpeedPanel instances={allNets} />}
           {nets.length > 0 && <LatencyPanel nets={nets} />}
           {snmps.length > 0 && <LinksPanel snmps={snmps} />}
         </>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The list of checks, as a form
+
+function ChecksPanel({ instances }: { instances: InstanceUpdate[] }) {
+  const L = useLumina();
+  const [id, setId] = useState(instances[0].instanceId);
+  const inst = instances.find((i) => i.instanceId === id) ?? instances[0];
+  const live = (inst.data as NetData | null)?.targets;
+  const [cfg, setCfg] = useState<Record<string, unknown> | null>(null);
+  const [poll, setPoll] = useState<number | null>(null);
+  const [text, setText] = useState("");
+  const [errors, setErrors] = useState<string[]>([]);
+  const [opts, setOpts] = useState({ packets: "4", latency: "150", loss: "20", every: "30" });
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [version, setVersion] = useState(0);
+
+  const load = useCallback(() => {
+    api.getConfig(id).then(({ config, pollIntervalSec }) => {
+      setCfg(config); setPoll(pollIntervalSec); setText(String(config.targets ?? ""));
+      setOpts({ packets: String(config.packets ?? 4), latency: String(config.warnLatencyMs ?? 150), loss: String(config.warnLossPct ?? 20), every: String(pollIntervalSec ?? Math.round(inst.intervalMs / 1000)) });
+      setVersion((v) => v + 1);
+    }).catch((e) => L.notify(err(e), true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+  useEffect(() => { if (open) load(); }, [open, load]);
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    if (!cfg) return;
+    setSaving(true);
+    try {
+      await api.updateInstance(id, { ...cfg, targets: text, packets: Number(opts.packets), warnLatencyMs: Number(opts.latency), warnLossPct: Number(opts.loss) }, Number(opts.every) || poll);
+      L.notify("Checks saved");
+      await L.reloadInstances();
+      setOpen(false);
+    } catch (x) { L.notify(err(x), true); } finally { setSaving(false); }
+  }
+  const num = (k: keyof typeof opts) => (e: React.ChangeEvent<HTMLInputElement>) => setOpts({ ...opts, [k]: e.target.value });
+  const unchanged = cfg !== null && text === String(cfg.targets ?? "") && opts.packets === String(cfg.packets ?? 4) && opts.latency === String(cfg.warnLatencyMs ?? 150) && opts.loss === String(cfg.warnLossPct ?? 20) && opts.every === String(poll ?? Math.round(inst.intervalMs / 1000));
+
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <h2>What is checked</h2>
+        <span className="meta">
+          {instances.length > 1 && <select className="field" style={{ marginRight: 8 }} value={id} onChange={(e) => { setId(e.target.value); setCfg(null); }} aria-label="Instance">{instances.map((i) => <option key={i.instanceId}>{i.instanceId}</option>)}</select>}
+          <button className="btn sm" onClick={() => setOpen((o) => !o)} aria-expanded={open}>{open ? "Close" : "Edit checks"}</button>
+        </span>
+      </div>
+      {!open && <div className="sub">{(live ?? []).length ? `${(live ?? []).length} checks: ${(live ?? []).map((t) => t.name).join(", ")}` : "No checks yet."} Press <b>Edit checks</b> to add, change or remove them.</div>}
+      {open && !cfg && <div className="empty">Loading…</div>}
+      {open && cfg && (
+        <form className="stack" onSubmit={save}>
+          <ChecksEditor key={`${id}:${version}`} value={text} live={live} onChange={(t, errs) => { setText(t); setErrors(errs); }} />
+          <div className="row" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
+            <label className="stack" style={{ gap: 4 }}><span>Check every (seconds)</span><input className="field" type="number" min={10} max={3600} style={{ width: 110 }} value={opts.every} onChange={num("every")} /></label>
+            <label className="stack" style={{ gap: 4 }}><span>Pings per check</span><input className="field" type="number" min={1} max={10} style={{ width: 100 }} value={opts.packets} onChange={num("packets")} /></label>
+            <label className="stack" style={{ gap: 4 }}><span>Warn when slower than (ms)</span><input className="field" type="number" min={1} style={{ width: 140 }} value={opts.latency} onChange={num("latency")} /></label>
+            <label className="stack" style={{ gap: 4 }}><span>Warn when packet loss is at least (%)</span><input className="field" type="number" min={1} max={100} style={{ width: 160 }} value={opts.loss} onChange={num("loss")} /></label>
+          </div>
+          <div className="hint">Pings give latency and packet loss. If a network drops pings on purpose, use a TCP port check instead. A check that stops answering raises a critical alert.</div>
+          {errors.length > 0 && <div className="error">Fix the checks marked in red before saving.</div>}
+          <div className="row"><button className="btn primary" disabled={saving || errors.length > 0 || unchanged || !text.trim()}>{saving ? "Saving…" : "Save checks"}</button><button type="button" className="btn" onClick={() => load()}>Discard changes</button></div>
+        </form>
+      )}
+    </section>
   );
 }
 
