@@ -56,8 +56,12 @@ r = await api("POST", "/api/instances", { moduleId: "snmp", instanceId: "Firewal
 check("an SNMP instance is added", r.status === 201, JSON.stringify(r.data));
 const { startFakeOmada } = await import("./helpers/omada-fake.mjs");
 const omada = await startFakeOmada();
+const { startFakeRouter } = await import("./helpers/tplink-fake.mjs");
+const router = await startFakeRouter({ mode: "aes" });
 r = await api("POST", "/api/instances", { moduleId: "omada", instanceId: "Wi-Fi", config: { url: omada.url, username: "viewer", password: "secret" }, pollIntervalSec: 10 });
 check("a TP-Link Omada controller is added", r.status === 201, JSON.stringify(r.data));
+r = await api("POST", "/api/instances", { moduleId: "tplink-router", instanceId: "AX12", config: { url: router.url, username: "admin", password: router.password }, pollIntervalSec: 30 });
+check("a TP-Link Archer router is added", r.status === 201, JSON.stringify(r.data));
 await until(async () => { const l = (await api("GET", "/api/instances")).data; const f = l.find((i) => i.instanceId === "Firewall"); return l.find((i) => i.instanceId === "LAN-Checks")?.data?.targets?.length === 3 && f?.data?.interfaces?.some((i) => i.inBps > 0); }, 40000);
 
 r = await api("POST", "/api/instances/LAN-Checks/actions/speedtest", {});
@@ -96,6 +100,9 @@ let wifi = "";
 const wifiShown = await until(async () => { await expandAll(); wifi = await page.locator("body").innerText(); return /Living room AP/.test(wifi) && /Garage AP/.test(wifi); }, 40000);
 check("the Omada card lists the router, switch and access points", wifiShown && /ER605/.test(wifi) && /SG2008P/.test(wifi) && /Access point/.test(wifi) && /Router/.test(wifi), wifiShown ? "" : wifi.replace(/\s+/g, " ").slice(-500));
 check("it shows the offline access point, the update and the Wi-Fi client count", /Garage AP[^\n]*offline/i.test(wifi) && /update/i.test(wifi) && /Wi-Fi clients\s*17/.test(wifi.replace(/\n/g, " ").replace(/\s+/g, " ")) || /17/.test(wifi));
+const ax = (await page.locator("#inst-AX12").innerText()).replace(/\s+/g, " ");
+check("the Archer router card shows the internet, clients, load and model", /Connected/.test(ax) && /Clients 4/.test(ax) && /2 Wi-Fi · 1 wired · 1 guest/.test(ax) && /CPU 12/.test(ax) && /Archer AX12/.test(ax), ax.slice(0, 260));
+check("anonymous viewers do not see the router's addresses or its clients", !/203\.0\.113\.9/.test(ax) && !/phone|laptop|nas/.test(ax) && !/AA:BB/.test(ax));
 check("anonymous viewers do not see device addresses", !/192\.168\.0\.2\d/.test(wifi));
 check("anonymous viewers do not see device addresses (alerts)", !/192\.168\.0\.22/.test(wifi));
 check("anonymous viewers do not see the interface labels (WAN, LAN)", !/\bWAN\b/.test(txt2) && !/\bLAN\b(?!-)/.test(txt2.replace(/LAN-Checks/g, "")));
@@ -187,7 +194,7 @@ await page.locator('.page-title button:has-text("Mbit/s")').click();
   await ap.keyboard.press("Escape");
   await ap.waitForTimeout(300);
   check("Escape closes the popup and the page stays where it was", (await ap.locator(".overlay .modal-sheet").count()) === 0 && Math.abs((await ap.evaluate(() => window.scrollY)) - y0) <= 2);
-  await editBtns.last().evaluate((el) => el.click());
+  await ap.locator("#inst-Wi-Fi").getByRole("button", { name: "Edit", exact: true }).evaluate((el) => el.click());
   await ap.waitForSelector(".overlay .modal-sheet");
   await ap.locator('.modal-sheet label:has-text("Instance name") input').fill("Edge Wi-Fi");
   await ap.locator(".modal-sheet").getByRole("button", { name: /^(Save|Update|Save changes)/ }).first().click();
@@ -233,5 +240,5 @@ for (const [w, h] of [[1920, 1080], [1366, 768]]) {
 check("no browser errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 await browser.close();
 clearInterval(bump); child.kill(); tcp.close(); web.close();
-omada.close();
+omada.close(); router.close();
 process.exit(ok ? 0 : 1);

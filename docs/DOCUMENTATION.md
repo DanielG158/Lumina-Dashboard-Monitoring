@@ -187,6 +187,10 @@ Switching SNMP on (menu names vary by version):
 
 The `omada` module logs in to an Omada controller's web interface (the same login the browser uses: a session cookie plus a CSRF token) with a Viewer account and reads the sites the account can see, and each site's device list. It was written against the behaviour of controller versions 5.1 to 6.x as documented by the open-source `tplink-omada-client` project, and tested here against a fake controller that behaves that way, not yet against a real one. It re-logs in by itself when the controller drops the session. Not covered yet: gateway WAN throughput, per-port switch status and the controller's own alert list; the Omada OpenAPI (client-credentials) login is not used yet.
 
+## 4g. TP-Link Archer routers
+
+The `tplink-router` module signs in to the admin page of a TP-Link Archer router (AX and C series with the "luci" interface), reads `admin/status?form=all` (internet address, CPU and memory, connected devices) and the firmware page, then signs out. Two firmware generations are handled and chosen automatically: an RSA-encrypted password with an AES-encrypted, signed conversation, and the newer RSA-only variant with JSON bodies. Safety rules: it never tries a wrong password more than once per 10 minutes; it signs out after every reading so the router's single admin session is free; if someone else is signed in it keeps the last reading. Not read: per-client traffic, Wi-Fi settings, anything that changes the router.
+
 ## 5. History (charts)
 
 One averaged sample per minute per metric is stored in SQLite and kept for 14 days (adjustable). Overview tiles show a trend line;

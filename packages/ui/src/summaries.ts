@@ -50,6 +50,10 @@ export function summarize(i: InstanceUpdate): string {
       const sm = d.summary as Obj | undefined;
       return `${sm?.up ?? 0}/${(d.targets ?? []).length} checks up${sm?.avgMs != null ? ` · ${sm.avgMs} ms` : ""}${sm?.avgLossPct ? ` · ${sm.avgLossPct}% loss` : ""}${d.speed?.downMbps != null ? ` · ↓ ${mbps(d.speed.downMbps)}` : ""}`;
     }
+    case "tplink-router": {
+      const c = d.clients as Obj | undefined;
+      return `${d.wan?.up ? "Internet up" : "NO INTERNET"}${c ? ` · ${c.total} clients` : ""}${d.cpu != null ? ` · CPU ${Math.round(d.cpu)}%` : ""}${d.busy ? " · admin page busy" : ""}`;
+    }
     case "omada": {
       const sm = d.summary as Obj | undefined;
       return `${sm?.online ?? 0}/${sm?.total ?? 0} devices online${sm?.clients ? ` · ${sm.clients} Wi-Fi clients` : ""}${sm?.upgrades ? ` · ${sm.upgrades} update${sm.upgrades === 1 ? "" : "s"}` : ""}`;

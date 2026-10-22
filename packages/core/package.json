@@ -20,6 +20,7 @@
     "@lumina/module-lumina-remote": "workspace:*",
     "@lumina/module-netcheck": "workspace:*",
     "@lumina/module-omada": "workspace:*",
+    "@lumina/module-tplink-router": "workspace:*",
     "@lumina/module-snmp": "workspace:*",
     "@lumina/module-proxmox": "workspace:*",
     "@lumina/module-uptime-kuma": "workspace:*",

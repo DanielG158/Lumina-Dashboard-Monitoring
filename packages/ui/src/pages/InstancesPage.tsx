@@ -7,6 +7,7 @@ import { IloCard } from "../components/IloCard";
 import { KumaCard } from "../components/KumaCard";
 import { ProxmoxCard } from "../components/ProxmoxCard";
 import { NetCheckCard } from "../components/NetCheckCard";
+import { TplinkRouterCard } from "../components/TplinkRouterCard";
 import { OmadaCard } from "../components/OmadaCard";
 import { SnmpCard } from "../components/SnmpCard";
 import { RemoteCard } from "../components/RemoteCard";
@@ -23,6 +24,7 @@ const CARDS: Record<string, (props: CardProps) => ReactElement> = {
   netcheck: NetCheckCard,
   snmp: SnmpCard,
   omada: OmadaCard,
+  "tplink-router": TplinkRouterCard,
 };
 
 interface Props {

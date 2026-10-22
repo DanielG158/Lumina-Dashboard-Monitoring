@@ -29,6 +29,7 @@ const PATHS: Record<string, ReactNode> = {
   netcheck: (<><path d="M5 12.5a10 10 0 0 1 14 0" /><path d="M8 15.5a6 6 0 0 1 8 0" /><path d="M11 18.5a2 2 0 0 1 2 0" /><circle cx="12" cy="20" r=".5" /></>),
   snmp: (<><rect x="3" y="8" width="18" height="8" rx="2" /><path d="M7 12h.01M11 12h.01M15 12h.01M19 12h.01" /><path d="M6 8V5M12 8V5M18 8V5" /></>),
   omada: (<><path d="M5 10a10 10 0 0 1 14 0" /><path d="M8 13a6 6 0 0 1 8 0" /><circle cx="12" cy="16.5" r="1.2" /><rect x="8" y="19" width="8" height="2" rx="1" /></>),
+  "tplink-router": (<><rect x="3" y="12" width="18" height="7" rx="2" /><path d="M7 16h.01M11 16h.01" /><path d="M8 12V6M16 12V6" /><path d="M5.5 4.5a3.5 3.5 0 0 1 5 0M13.5 4.5a3.5 3.5 0 0 1 5 0" /></>),
   bell: (<><path d="M6 9a6 6 0 1 1 12 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9Z" /><path d="M10 20a2 2 0 0 0 4 0" /></>),
   cpu: (<><rect x="6" y="6" width="12" height="12" rx="2" /><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3" /></>),
   bolt: <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" />,

@@ -40,6 +40,8 @@ function redactData(moduleId: string, d: Obj): Obj {
       return { ...d, targets: (d.targets ?? []).map((t: Obj) => ({ ...t, target: "" })) };
     case "omada":
       return { ...d, controller: d.controller && { ...d.controller, user: null }, sites: (d.sites ?? []).map((s: Obj) => ({ ...s, devices: (s.devices ?? []).map((x: Obj) => ({ ...x, mac: "", ip: "" })) })) };
+    case "tplink-router":
+      return { ...d, list: [], wan: d.wan && { ...d.wan, ip: "", gateway: "" }, lan: d.lan && { ...d.lan, ip: "" } };
     case "snmp":
       return { ...d, sysDescr: null, interfaces: (d.interfaces ?? []).map((i: Obj) => ({ ...i, alias: null })) };
     case "uptime-kuma":

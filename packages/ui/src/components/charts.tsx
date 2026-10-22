@@ -40,7 +40,8 @@ const FIXED: Record<string, Described> = {
   "traffic:in": { label: "Traffic in (all links)", unit: "@bps" }, "traffic:out": { label: "Traffic out (all links)", unit: "@bps" },
   "speed:down": { label: "Internet download", unit: "@mbps" }, "speed:up": { label: "Internet upload", unit: "@mbps" }, "speed:latency": { label: "Speed test response", unit: " ms" },
   "rtt:avg": { label: "Average latency", unit: " ms" }, "net:up": { label: "Checks up", unit: "" }, "net:down": { label: "Checks down", unit: "" },
-  mem: { label: "Memory used", unit: "%" },
+  mem: { label: "Memory used", unit: "%" }, cpu: { label: "CPU", unit: "%" },
+  "clients:wifi": { label: "Wi-Fi clients", unit: "" }, "clients:wired": { label: "Wired clients", unit: "" }, "clients:guest": { label: "Guest clients", unit: "" }, "clients:total": { label: "Clients", unit: "" }, "wan:up": { label: "Internet up (1 = yes)", unit: "" },
 };
 const PREFIXED: [string, string, string][] = [
   ["cpu:", "CPU", "%"], ["mem:", "Memory", "%"], ["rootfs:", "Root disk", "%"], ["storage:", "Storage", "%"],

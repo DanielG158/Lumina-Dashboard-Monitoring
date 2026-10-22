@@ -148,7 +148,16 @@ Lumina reads an **Omada controller**: the software controller or the OC200 / OC3
 
 Lumina raises a critical alert when a device goes offline, a warning when one stops answering the controller or is isolated, and informational notes for a device waiting to be adopted or a firmware update. Devices that are not managed by a controller are covered below.
 
-**TP-Link devices without a controller.** Home routers and mesh systems (Archer, Deco) have no monitoring interface, so Lumina cannot read their status, and it does not try to log in to their web pages. Use **Network checks** to watch them: a *Ping* check and a *TCP port* check on their web port (80 or 443) show whether they are up and how fast they answer. Business models in standalone mode (Omada gateways and access points, JetStream switches) often support **SNMP**; if yours does, switch it on and add it as **Router / switch (SNMP)** for link status and traffic.
+**TP-Link Archer routers without a controller (AX12, AX10, AX20, AX23, AX50, C6U and similar).** Add **TP-Link Archer router**. Lumina signs in to the router's admin page the same way a browser does, reads its status page and signs out again. It shows whether the router has an internet connection and its internet address and uptime, CPU and memory use, the number of wired, Wi-Fi and guest clients (signed-in operators also see the list of devices), and the router's model and firmware. It only reads and changes nothing.
+
+1. Use the router's **local password** (the one you type on the admin page at `tplinkwifi.net` or `192.168.0.1`), not your TP-Link ID. If your router signs in with a TP-Link ID, switch it to a local password in the router's settings first.
+2. Add the instance with the router's address (for example `http://192.168.0.1`) and the password. The username is normally `admin`.
+3. Readings are taken once a minute by default and never faster than every 30 seconds. These routers allow only one admin session, so while Lumina is signed in (a second or two) the admin page is busy. Lumina signs out straight afterwards, and if you are using the admin page when a reading is due it skips that reading and keeps the last one. If the password is wrong, Lumina tries once and then waits 10 minutes, so it can never lock the router's login.
+4. Lumina raises a critical alert when the router has no internet address, and warnings for a very busy CPU or memory.
+
+It follows the protocol that the open-source project [TP-Link-Archer-C6U](https://github.com/AlexandrErohin/TP-Link-Archer-C6U) documents for these routers, and its supported list includes the Archer AX12. It has been tested against a fake router that behaves that way, **not yet against a real AX12**. If it cannot sign in, the card shows what the router answered; please open an issue with that text.
+
+**Other TP-Link devices.** Deco mesh systems and some other models use a different admin interface and are not supported; watch them with **Network checks** (a *Ping* check and a *TCP port* check on the web port, 80 or 443). Business models in standalone mode (Omada gateways and access points, JetStream switches) often support **SNMP**; if yours does, add it as **Router / switch (SNMP)** for link status and traffic.
 
 ### Another Lumina (a second site)
 
@@ -229,7 +238,7 @@ Lumina is a TypeScript monorepo: `packages/core` (Fastify, Socket.io, SQLite), `
 
 ## Status
 
-Lumina is young, and was written for and tested on one homelab. Proxmox, iLO 4, apcupsd and Uptime Kuma have run daily against real hardware. These have only been tested against automated fakes or briefly: **iLO 5 (Gen10), the Network checks, SNMP and TP-Link Omada modules, watching another Lumina, the Cloudflare module and the Docker image**, and the scheduled actions and power buttons have never been run against real devices. Please read [the security notes](docs/security-assessment.md) before exposing it beyond your home network, and open an issue if something does not work.
+Lumina is young, and was written for and tested on one homelab. Proxmox, iLO 4, apcupsd and Uptime Kuma have run daily against real hardware. These have only been tested against automated fakes or briefly: **iLO 5 (Gen10), the Network checks, SNMP, TP-Link Omada and TP-Link Archer modules, watching another Lumina, the Cloudflare module and the Docker image**, and the scheduled actions and power buttons have never been run against real devices. Please read [the security notes](docs/security-assessment.md) before exposing it beyond your home network, and open an issue if something does not work.
 
 Not built yet: NUT support, email notifications, LDAP or two-factor sign-in, a mobile app, auto-update, device discovery.
 
