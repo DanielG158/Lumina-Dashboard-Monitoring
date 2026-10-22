@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
+import { bitrate, mbps } from "../format";
 import { Section } from "./Section";
+import { UnitToggle, useSpeedUnit } from "./UnitToggle";
 
 type Point = [number, number, number, number];
 export const RANGES = ["1h", "6h", "24h", "7d"] as const;
@@ -24,6 +26,8 @@ export function useMetrics(instanceId: string, keys: string[], range: Range, ref
   return { series, error };
 }
 
+/** "@bps" values are bits per second and "@mbps" megabits per second; both follow the Mbit/s | MB/s switch. */
+export const SPEED_UNITS = new Set(["@bps", "@mbps"]);
 interface Described { label: string; unit: string }
 const FIXED: Record<string, Described> = {
   load: { label: "Load", unit: "%" }, battery: { label: "Battery charge", unit: "%" }, runtime: { label: "Runtime remaining", unit: " min" },
@@ -33,6 +37,10 @@ const FIXED: Record<string, Described> = {
   "guests:running": { label: "Running guests", unit: "" }, "guests:total": { label: "Total guests", unit: "" },
   "monitors:up": { label: "Monitors up", unit: "" }, "monitors:down": { label: "Monitors down", unit: "" }, "response:avg": { label: "Average response", unit: " ms" },
   "tunnels:healthy": { label: "Healthy tunnels", unit: "" }, "tunnels:total": { label: "Total tunnels", unit: "" },
+  "traffic:in": { label: "Traffic in (all links)", unit: "@bps" }, "traffic:out": { label: "Traffic out (all links)", unit: "@bps" },
+  "speed:down": { label: "Internet download", unit: "@mbps" }, "speed:up": { label: "Internet upload", unit: "@mbps" }, "speed:latency": { label: "Speed test response", unit: " ms" },
+  "rtt:avg": { label: "Average latency", unit: " ms" }, "net:up": { label: "Checks up", unit: "" }, "net:down": { label: "Checks down", unit: "" },
+  mem: { label: "Memory used", unit: "%" },
 };
 const PREFIXED: [string, string, string][] = [
   ["cpu:", "CPU", "%"], ["mem:", "Memory", "%"], ["rootfs:", "Root disk", "%"], ["storage:", "Storage", "%"],
@@ -41,11 +49,21 @@ const PREFIXED: [string, string, string][] = [
 
 export function describeMetric(key: string): Described {
   if (FIXED[key]) return FIXED[key];
+  const link = /^if:(.+):(in|out)$/.exec(key);
+  if (link) return { label: `${link[1]} · ${link[2] === "in" ? "download (in)" : "upload (out)"}`, unit: "@bps" };
+  const loss = /^loss:(.+)$/.exec(key);
+  if (loss) return { label: `Packet loss · ${loss[1]}`, unit: "%" };
+  const rtt = /^rtt:(.+)$/.exec(key);
+  if (rtt) return { label: `Latency · ${rtt[1]}`, unit: " ms" };
+  const pushed = /^push:(.+)$/.exec(key);
+  if (pushed) return { label: `Pushed value · ${pushed[1]}`, unit: "" };
   for (const [p, label, unit] of PREFIXED) if (key.startsWith(p)) return { label: `${label} · ${key.slice(p.length)}`, unit };
   return { label: key, unit: "" };
 }
 
 export function fmt(v: number, unit: string) {
+  if (unit === "@bps") return bitrate(v);
+  if (unit === "@mbps") return mbps(v);
   const digits = Math.abs(v) >= 100 || Number.isInteger(v) ? 0 : 1;
   return `${v.toFixed(digits)}${unit}`;
 }
@@ -78,13 +96,15 @@ export function Spark({ instanceId, metric, range = "1h", unit = "" }: { instanc
 export function MetricChart({ points, unit, range }: { points: Point[]; unit: string; range: Range }) {
   const ref = useRef<SVGSVGElement>(null);
   const [hover, setHover] = useState<number | null>(null);
-  const W = 640, H = 190, L = 46, R = 10, T = 10, B = 24;
+  useSpeedUnit();
+  const W = 640, H = 190, L = 78, R = 10, T = 10, B = 24;
 
   const model = useMemo(() => {
     if (points.length < 2) return null;
     const lo = Math.min(...points.map((p) => p[2])), hi = Math.max(...points.map((p) => p[3]));
     const pad = (hi - lo || 1) * 0.1;
-    const y0 = lo - pad, y1 = hi + pad;
+    // Things that can never be negative (speeds, percentages, counts) should not get an axis that dips below zero.
+    const y0 = lo >= 0 ? Math.max(0, lo - pad) : lo - pad, y1 = hi + pad;
     const t0 = points[0][0], t1 = points[points.length - 1][0];
     const x = (t: number) => L + ((t - t0) / (t1 - t0 || 1)) * (W - L - R);
     const y = (v: number) => T + (1 - (v - y0) / (y1 - y0)) * (H - T - B);
@@ -112,7 +132,7 @@ export function MetricChart({ points, unit, range }: { points: Point[]; unit: st
         {ticks.map((v, i) => (
           <g key={i}>
             <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} className="grid-line" />
-            <text x={L - 6} y={y(v) + 3} textAnchor="end" className="axis">{fmt(v, unit.trim() === "%" ? "" : "")}</text>
+            <text x={L - 6} y={y(v) + 3} textAnchor="end" className="axis">{fmt(v, unit)}</text>
           </g>
         ))}
         <text x={L} y={H - 6} className="axis">{clock(t0, range)}</text>
@@ -158,6 +178,7 @@ interface BodyProps {
 }
 
 function HistoryBody({ instanceId, prefer, keys, setKeys, keyName, setKey, range, setRange }: BodyProps) {
+  useSpeedUnit();
   useEffect(() => {
     let alive = true;
     api.metricKeys(instanceId).then((k) => {
@@ -187,6 +208,7 @@ function HistoryBody({ instanceId, prefer, keys, setKeys, keyName, setKey, range
       <div className="seg" role="group" aria-label="Time range">
         {RANGES.map((r) => <button key={r} className={r === range ? "on" : ""} onClick={() => setRange(r)}>{r}</button>)}
       </div>
+      {SPEED_UNITS.has(unit) && <div style={{ display: "flex", justifyContent: "flex-end", margin: "6px 0" }}><UnitToggle /></div>}
       <MetricChart points={pts} unit={unit} range={range} />
       {vals.length > 0 && (
         <div className="sub" style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 4 }}>

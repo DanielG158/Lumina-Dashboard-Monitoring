@@ -50,6 +50,8 @@ export interface ActiveAlert {
   maintenance: string | null;
 }
 
+export interface SpeedResult { id: number; instanceId: string; ts: number; downMbps: number | null; upMbps: number | null; latencyMs: number | null; error: string | null }
+
 export interface EventRow {
   id: number;
   ts: number;
@@ -292,6 +294,11 @@ export const api = {
   metricKeys: (id: string) => req<string[]>(`/instances/${enc(id)}/metric-keys`),
 
   alerts: () => req<AlertsPayload>("/alerts"),
+  speedTests: (f: { instance?: string; since?: number; limit?: number } = {}) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== "") p.set(k, String(v));
+    return req<SpeedResult[]>(`/speedtests?${p}`);
+  },
   alertHistory: (f: { before?: number; instance?: string; severity?: string; state?: string; q?: string; since?: number; limit?: number }) => {
     const p = new URLSearchParams();
     for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== "") p.set(k, String(v));

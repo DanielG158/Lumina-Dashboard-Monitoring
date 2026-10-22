@@ -175,6 +175,17 @@ export function openDb(path: string) {
       last_message TEXT,
       created_by   TEXT
     );
+    -- Every internet speed test result (the speed test itself runs in the Network checks module).
+    CREATE TABLE IF NOT EXISTS speed_results (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      instance_id TEXT NOT NULL,
+      ts          INTEGER NOT NULL,
+      down_mbps   REAL,
+      up_mbps     REAL,
+      latency_ms  REAL,
+      error       TEXT,
+      UNIQUE (instance_id, ts)
+    );
     -- Read-only access tokens for other Lumina servers (only a hash is kept).
     CREATE TABLE IF NOT EXISTS api_tokens (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -320,6 +331,19 @@ export function openDb(path: string) {
       setRole: (id: number, role: UserRow["role"]) => db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, id),
       touchLogin: (id: number) => db.prepare("UPDATE users SET last_login = ? WHERE id = ?").run(now(), id),
       delete: (id: number) => db.prepare("DELETE FROM users WHERE id = ?").run(id),
+    },
+
+    speed: {
+      add: (r: { instanceId: string; ts: number; down: number | null; up: number | null; latency: number | null; error: string | null }) =>
+        db.prepare("INSERT OR IGNORE INTO speed_results (instance_id, ts, down_mbps, up_mbps, latency_ms, error) VALUES (?, ?, ?, ?, ?, ?)").run(r.instanceId, r.ts, r.down, r.up, r.latency, r.error).changes,
+      list: (f: { instance?: string; since?: number; limit: number }) => {
+        const where: string[] = []; const args: (string | number)[] = [];
+        if (f.instance) { where.push("instance_id = ?"); args.push(f.instance); }
+        if (f.since) { where.push("ts >= ?"); args.push(f.since); }
+        return db.prepare(`SELECT id, instance_id AS instanceId, ts, down_mbps AS downMbps, up_mbps AS upMbps, latency_ms AS latencyMs, error FROM speed_results ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY ts DESC LIMIT ?`).all(...args, f.limit) as { id: number; instanceId: string; ts: number; downMbps: number | null; upMbps: number | null; latencyMs: number | null; error: string | null }[];
+      },
+      remove: (instanceId: string) => db.prepare("DELETE FROM speed_results WHERE instance_id = ?").run(instanceId),
+      purge: (before: number) => db.prepare("DELETE FROM speed_results WHERE ts < ?").run(before),
     },
 
     tokens: {

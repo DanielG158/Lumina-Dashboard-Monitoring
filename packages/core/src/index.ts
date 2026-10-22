@@ -108,12 +108,17 @@ const metrics = new MetricsRecorder(store);
 registry.onPoll = (info) => {
   const ok = info.conditions !== null;
   if (ok) metrics.record(info.instanceId, info.metrics);
+  if (info.moduleId === "netcheck") {
+    const sp = (info.data as { speed?: { at: number; downMbps: number | null; upMbps: number | null; latencyMs: number | null; error: string | null } | null } | null)?.speed;
+    if (sp?.at) store.speed.add({ instanceId: info.instanceId, ts: Math.floor(sp.at / 1000), down: sp.downMbps, up: sp.upMbps, latency: sp.latencyMs, error: sp.error });
+  }
   const derived = ok && info.moduleId === "proxmox" ? forecastConditions(forecasts(), info.instanceId, settings().forecastWarnDays) : [];
   void engine.evaluate(info.instanceId, { conditions: info.conditions ? [...info.conditions, ...derived] : null, down: info.status === "disconnected", error: info.error, unknown: info.unknown });
 };
 registry.onRemoved = (id) => {
   engine.clearInstance(id);
   metrics.forget(id);
+  store.speed.remove(id);
 };
 
 app.setErrorHandler((err: Error & { statusCode?: number; issues?: { path: (string | number)[]; message: string }[] }, req, reply) => {
@@ -126,7 +131,7 @@ app.setErrorHandler((err: Error & { statusCode?: number; issues?: { path: (strin
 });
 
 // Read-only data that anonymous visitors may fetch while public viewing is on. Everything else needs a signed-in account.
-const ANONYMOUS_READS = [/^\/api\/modules$/, /^\/api\/instances$/, /^\/api\/instances\/[^/]+\/metrics$/, /^\/api\/instances\/[^/]+\/metric-keys$/, /^\/api\/alerts$/, /^\/api\/alerts\/history$/, /^\/api\/maintenance$/, /^\/api\/energy$/, /^\/api\/forecast$/];
+const ANONYMOUS_READS = [/^\/api\/modules$/, /^\/api\/instances$/, /^\/api\/instances\/[^/]+\/metrics$/, /^\/api\/instances\/[^/]+\/metric-keys$/, /^\/api\/alerts$/, /^\/api\/alerts\/history$/, /^\/api\/speedtests$/, /^\/api\/maintenance$/, /^\/api\/energy$/, /^\/api\/forecast$/];
 
 app.addHook("onRequest", async (req, reply) => {
   if (req.url.startsWith("/api/")) reply.header("Cache-Control", "no-store");
@@ -328,6 +333,12 @@ app.get("/api/alerts/history", async (req) => {
     since: z.coerce.number().int().min(0).optional(),
   }).parse(req.query);
   return { ...store.events.search({ ...q, q: q.q || undefined }), instances: store.events.instances() };
+});
+
+// Internet speed test results, newest first. Readable like the other history.
+app.get("/api/speedtests", async (req) => {
+  const q = z.object({ instance: z.string().max(100).optional(), since: z.coerce.number().int().min(0).optional(), limit: z.coerce.number().int().min(1).max(1000).default(200) }).parse(req.query);
+  return store.speed.list(q);
 });
 
 app.post("/api/alerts/mute", { preHandler: operator }, async (req) => {
@@ -818,6 +829,7 @@ const housekeeping = setInterval(() => {
   store.events.purge(now - settings().eventRetentionDays * day);
   store.maintenance.purgeOld(now - 30 * day);
   store.energy.purge(now - 3 * 365 * day);
+  store.speed.purge(now - 2 * 365 * day);
 }, 3_600_000);
 let energyTimer: NodeJS.Timeout | undefined;
 

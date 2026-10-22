@@ -121,7 +121,8 @@ Website       | http | https://example.com
 Lumina records latency, jitter and packet loss, charts them, and raises alerts when a check stops answering, loses 20% of its packets or is slower than 150 ms (both limits are adjustable).
 
 - **Pings need permission.** The installer allows it. If a check says "not allowed to send pings" (some containers refuse), run the command shown on the card once, as root: `echo "net.ipv4.ping_group_range = 0 2147483647" > /etc/sysctl.d/90-lumina-ping.conf && sysctl --system`. TCP, DNS and web checks work without it.
-- **Internet speed test (off by default).** Tick *Run internet speed tests*, set the interval and an optional minimum download speed. It downloads and uploads test data (Cloudflare's public test by default), so it uses your connection and tells that service your address.
+- **Internet speed test (off by default).** Open the **Network** tab. Under *Internet speed* press **Speed test settings** (admins), tick *Run internet speed tests automatically*, and set how often (default every 6 hours), the test size and an optional minimum download speed. It downloads and uploads test data (Cloudflare's public test by default), so it uses your connection and tells that service your address. Operators can press **Run speed test now** at any time. The page keeps every result for two years, draws download and upload over time (24 hours, 7 days, 30 days or everything), lists them in a table and exports them as CSV.
+- **Mbit/s or MB/s.** Every network speed can be shown as megabits per second (how links and internet plans are sold) or megabytes per second (how downloads show): use the switch on the Network page, on the SNMP card, or in the Theme menu. It is remembered per browser.
 
 ### Router or switch (SNMP)
 

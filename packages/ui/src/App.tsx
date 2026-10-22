@@ -8,6 +8,7 @@ import { ThemeMenu } from "./components/ThemeMenu";
 import { LuminaContext, canOf, roleOf, type Lumina } from "./context";
 import { AlertsPage } from "./pages/AlertsPage";
 import { AuditPage } from "./pages/AuditPage";
+import { NetworkPage } from "./pages/NetworkPage";
 import { EnergyPage } from "./pages/EnergyPage";
 import { MaintenancePage } from "./pages/MaintenancePage";
 import { InstancesPage } from "./pages/InstancesPage";
@@ -16,7 +17,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { applyTheme } from "./theme";
 import "./styles.css";
 
-const TABS = ["overview", "instances", "alerts", "energy", "maintenance", "settings", "audit", "tv"] as const;
+const TABS = ["overview", "instances", "alerts", "energy", "network", "maintenance", "settings", "audit", "tv"] as const;
 type Tab = (typeof TABS)[number];
 const readTab = (): Tab => {
   const t = location.hash.replace(/^#\/?/, "").split(/[/?]/)[0] as Tab;
@@ -183,7 +184,7 @@ export function App() {
 
   const live = alerts.active.filter((a) => !a.suppressed);
   const crit = live.filter((a) => a.severity === "critical").length;
-  const tabs: [Tab, string][] = [["overview", "Overview"], ["instances", "Instances"], ["alerts", "Alerts"], ["energy", "Energy"], ["maintenance", "Maintenance"]];
+  const tabs: [Tab, string][] = [["overview", "Overview"], ["instances", "Instances"], ["alerts", "Alerts"], ["energy", "Energy"], ["network", "Network"], ["maintenance", "Maintenance"]];
   if (auth.user || auth.openAccess) tabs.push(["settings", "Settings"]);
   if (can.admin) tabs.push(["audit", "Audit log"]);
 
@@ -230,6 +231,7 @@ export function App() {
           {tab === "instances" && <InstancesPage adding={adding} editing={editing} onClose={() => { setAdding(false); setEditing(null); }} onDone={finish} />}
           {tab === "alerts" && <AlertsPage />}
           {tab === "energy" && <EnergyPage />}
+          {tab === "network" && <NetworkPage />}
           {tab === "maintenance" && <MaintenancePage />}
           {tab === "settings" && (auth.user || auth.openAccess) && <SettingsPage />}
           {tab === "audit" && can.admin && <AuditPage />}
