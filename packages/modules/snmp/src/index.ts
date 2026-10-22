@@ -1,5 +1,6 @@
 import { z } from "zod";
 import * as snmpNs from "net-snmp";
+import { createSocket } from "node:dgram";
 import { defineModule, type AlertCondition } from "@lumina/sdk";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -54,6 +55,33 @@ const OID = {
   memTotal: "1.3.6.1.4.1.2021.4.5.0",
   memAvail: "1.3.6.1.4.1.2021.4.6.0",
 };
+
+/**
+ * "No answer" has two very different causes. If something at the address says "nothing is listening on that port" (the operating system
+ * reports it on the next send), SNMP is simply not running there. If there is total silence, the device is dropping the request: a
+ * wrong community or user, a firewall, or an access list that does not include this server.
+ */
+export function probeUdpPort(host: string, port: number, waitMs = 700): Promise<"closed" | "silent"> {
+  return new Promise((resolve) => {
+    const sock = createSocket(host.includes(":") ? "udp6" : "udp4");
+    let done = false;
+    const finish = (r: "closed" | "silent") => { if (done) return; done = true; try { sock.close(); } catch { /* already closed */ } resolve(r); };
+    sock.once("error", (e: NodeJS.ErrnoException) => finish(e.code === "ECONNREFUSED" ? "closed" : "silent"));
+    sock.connect(port, host, () => {
+      // Two tiny sends: the first provokes the "port unreachable" reply, the second surfaces it as an error on this socket.
+      sock.send(Buffer.from([0x30, 0x00]), (e) => { if (e) finish("silent"); });
+      const again = setTimeout(() => { if (!done) { try { sock.send(Buffer.from([0x30, 0x00]), () => undefined); } catch { /* closed meanwhile */ } } }, 250);
+      setTimeout(() => { clearTimeout(again); finish("silent"); }, waitMs).unref();
+    });
+    sock.once("error", () => undefined);
+  });
+}
+
+export function explainNoAnswer(kind: "closed" | "silent", host: string, port: number, version: string): string {
+  return kind === "closed"
+    ? `Nothing is listening for SNMP on ${host}:${port}. The device answers the network but SNMP is not switched on there (or it only listens on its own loopback address, or its firewall rejects UDP ${port}). Enable the SNMP service on the device first.`
+    : `No answer from ${host}:${port}. The device ignores the request, which usually means the ${version === "3" ? "SNMPv3 user or keys are wrong" : "community is wrong"}, a firewall drops UDP ${port}, or the device only answers certain addresses (allow this Lumina's address in its SNMP settings).`;
+}
 
 const text = (v: unknown): string | null => (v === undefined || v === null ? null : Buffer.isBuffer(v) ? v.toString("utf8").replace(/\0+$/, "") : String(v));
 /** Counters come as numbers (32 bit) or 8-byte buffers (64 bit). */
@@ -132,7 +160,7 @@ export default defineModule<Config>({
         } catch (e) {
           healthy = false;
           const m = e instanceof Error ? e.message : String(e);
-          throw new Error(/timeout|timed out/i.test(m) ? `No answer from ${config.host}:${config.port}. Check that SNMP is switched on, the address, and that this Lumina is allowed to ask.` : m);
+          throw new Error(/timeout|timed out/i.test(m) ? explainNoAnswer(await probeUdpPort(config.host, config.port), config.host, config.port, config.version) : m);
         }
         const [ifT, ifX] = await Promise.all([
           table(OID.ifTable, [2, 3, 5, 8, 10, 14, 16, 20]),

@@ -121,6 +121,15 @@ const bad = await sn.default.create(sc2.parse({ host: "127.0.0.1", port: SPORT, 
 let err = null; try { await bad.poll(); } catch (e) { err = e.message; }
 check("a wrong community gives a readable error", /No answer|community|Check/i.test(err ?? ""), err);
 await bad.dispose?.();
+// "nothing listening" versus "ignored"
+const closedPort = await new Promise((r) => { const d = createRequire(import.meta.url)("node:dgram").createSocket("udp4"); d.bind(0, "127.0.0.1", () => { const x = d.address().port; d.close(() => r(x)); }); });
+check("a port with nothing behind it is recognised as closed", (await sn.probeUdpPort("127.0.0.1", closedPort)) === "closed");
+check("a port that is answered by nobody in particular is not mistaken for closed", (await sn.probeUdpPort("127.0.0.1", SPORT)) === "silent");
+const noSnmp = await sn.default.create(sc2.parse({ host: "127.0.0.1", port: closedPort, community: "lab" }), { log });
+let err2 = null; try { await noSnmp.poll(); } catch (e) { err2 = e.message; }
+check("the card says SNMP is not running when nothing listens", /Nothing is listening for SNMP/.test(err2 ?? ""), err2);
+check("a wrong community is explained as such", /community is wrong/.test(err ?? ""), err);
+await noSnmp.dispose?.();
 
 tcp.close(); web.close();
 process.exit(ok ? 0 : 1);
