@@ -367,6 +367,25 @@ export function openDb(path: string) {
       firing: () => (db.prepare("SELECT * FROM events WHERE state = 'firing' ORDER BY ts DESC").all() as RawEvent[]).map(toEvent),
       recent: (limit: number) => (db.prepare("SELECT * FROM events ORDER BY id DESC LIMIT ?").all(limit) as RawEvent[]).map(toEvent),
       purge: (before: number) => db.prepare("DELETE FROM events WHERE state = 'resolved' AND ts < ?").run(before),
+      /** History with filters, newest first, in pages (`before` is the id of the last row already shown). */
+      search: (f: { limit: number; before?: number; instance?: string; severity?: string; state?: string; q?: string; since?: number }) => {
+        const where: string[] = [];
+        const args: (string | number)[] = [];
+        if (f.instance) { where.push("instance_id = ?"); args.push(f.instance); }
+        if (f.severity) { where.push("severity = ?"); args.push(f.severity); }
+        if (f.state) { where.push("state = ?"); args.push(f.state); }
+        if (f.since) { where.push("ts >= ?"); args.push(f.since); }
+        if (f.q) {
+          where.push("(title LIKE ? ESCAPE '\\' OR detail LIKE ? ESCAPE '\\' OR key LIKE ? ESCAPE '\\')");
+          const like = `%${f.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+          args.push(like, like, like);
+        }
+        const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+        const total = (db.prepare(`SELECT COUNT(*) AS n FROM events ${clause}`).get(...args) as { n: number }).n;
+        const page = db.prepare(`SELECT * FROM events ${clause}${f.before ? `${clause ? " AND" : "WHERE"} id < ?` : ""} ORDER BY id DESC LIMIT ?`).all(...args, ...(f.before ? [f.before] : []), f.limit + 1) as RawEvent[];
+        return { events: page.slice(0, f.limit).map(toEvent), hasMore: page.length > f.limit, total };
+      },
+      instances: () => (db.prepare("SELECT DISTINCT instance_id AS id FROM events ORDER BY instance_id").all() as { id: string }[]).map((r) => r.id),
     },
 
     channels: {

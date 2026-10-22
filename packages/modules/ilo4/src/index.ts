@@ -444,6 +444,12 @@ export default defineModule<Config>({
             out.push({ key: `iml:${e.id}`, severity: e.severity === "Critical" ? "critical" : "warning", title: "Hardware log entry", detail: e.message.slice(0, 200) });
           }
         }
+        // Parts the iLO would not give (an older or newer iLO, a missing licence, a timeout) are listed instead of silently left blank.
+        for (const w of (d.warnings ?? []) as string[]) {
+          const i = w.indexOf(":");
+          const section = i > 0 ? w.slice(0, i) : w;
+          out.push({ key: `read-failed:${section}`, severity: "info", title: `Could not read ${section} from the iLO`, detail: (i > 0 ? w.slice(i + 1) : w).trim().slice(0, 300) });
+        }
         const unknown: string[] = [];
         if (!d.storage) unknown.push("drive:", "drive-temp:", "controller:");
         if (!d.memory?.dimms) unknown.push("dimm:");

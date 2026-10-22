@@ -97,7 +97,7 @@ export function CardShell({ instance, tag, children, historyPrefer }: CardProps 
               <i className={`dot ${a.severity}`} /><span>{a.title}</span>
             </button>
           ))}
-          {alerts.length > 6 && <button className="pill" onClick={() => go("alerts")}>+{alerts.length - 6} more</button>}
+          {alerts.length > 6 && <button className="pill" title="Open the Alerts page" onClick={() => go("alerts")}>+{alerts.length - 6} more</button>}
         </div>
       )}
 

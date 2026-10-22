@@ -62,6 +62,7 @@ const settings = () => ({
   alertConfirmPolls: store.settings.get("alertConfirmPolls", 2),
   metricsRetentionDays: store.settings.get("metricsRetentionDays", 14),
   forecastWarnDays: store.settings.get("forecastWarnDays", 14),
+  eventRetentionDays: store.settings.get("eventRetentionDays", 365),
   muted: store.settings.get<string[]>("muted", []),
   publicView: store.settings.get("publicView", true),
 });
@@ -83,7 +84,7 @@ io.use((socket, next) => {
   void socket.join(session || openAccess() ? "auth" : "anon");
   next();
 });
-app.addHook("onClose", (_, done) => void io.close(done));
+app.addHook("onClose", (_, done) => void io.close(() => done()));
 
 const audit = (req: FastifyRequest, action: string, target: string | null = null, detail: string | null = null, user: string | null = null) =>
   store.audit.add(user ?? req.user?.username ?? null, action, target, detail, clientIp(req));
@@ -125,7 +126,7 @@ app.setErrorHandler((err: Error & { statusCode?: number; issues?: { path: (strin
 });
 
 // Read-only data that anonymous visitors may fetch while public viewing is on. Everything else needs a signed-in account.
-const ANONYMOUS_READS = [/^\/api\/modules$/, /^\/api\/instances$/, /^\/api\/instances\/[^/]+\/metrics$/, /^\/api\/instances\/[^/]+\/metric-keys$/, /^\/api\/alerts$/, /^\/api\/maintenance$/, /^\/api\/energy$/, /^\/api\/forecast$/];
+const ANONYMOUS_READS = [/^\/api\/modules$/, /^\/api\/instances$/, /^\/api\/instances\/[^/]+\/metrics$/, /^\/api\/instances\/[^/]+\/metric-keys$/, /^\/api\/alerts$/, /^\/api\/alerts\/history$/, /^\/api\/maintenance$/, /^\/api\/energy$/, /^\/api\/forecast$/];
 
 app.addHook("onRequest", async (req, reply) => {
   if (req.url.startsWith("/api/")) reply.header("Cache-Control", "no-store");
@@ -315,6 +316,20 @@ app.delete("/api/tokens/:id", { preHandler: admin }, async (req, reply) => {
 
 app.get("/api/alerts", async () => ({ active: engine.active(), recent: store.events.recent(100), muted: settings().muted }));
 
+// The full alert history, with filters and paging. Anonymous visitors may read it, exactly like the recent list.
+app.get("/api/alerts/history", async (req) => {
+  const q = z.object({
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+    before: z.coerce.number().int().min(1).optional(),
+    instance: z.string().max(100).optional(),
+    severity: z.enum(["critical", "warning", "info"]).optional(),
+    state: z.enum(["firing", "resolved"]).optional(),
+    q: z.string().trim().max(100).optional(),
+    since: z.coerce.number().int().min(0).optional(),
+  }).parse(req.query);
+  return { ...store.events.search({ ...q, q: q.q || undefined }), instances: store.events.instances() };
+});
+
 app.post("/api/alerts/mute", { preHandler: operator }, async (req) => {
   const { key } = z.object({ key: z.string().min(1).max(200) }).parse(req.body);
   const muted = new Set(settings().muted);
@@ -437,6 +452,7 @@ app.put("/api/settings", { preHandler: admin }, async (req) => {
     alertConfirmPolls: z.number().int().min(1).max(10),
     metricsRetentionDays: z.number().int().min(1).max(365),
     forecastWarnDays: z.number().int().min(1).max(365).default(14),
+    eventRetentionDays: z.number().int().min(7).max(3650).default(365),
     publicView: z.boolean(),
   }).parse(req.body);
   for (const [k, v] of Object.entries(body)) store.settings.set(k, v);
@@ -799,7 +815,7 @@ const housekeeping = setInterval(() => {
   store.sessions.purge();
   store.metrics.purge(now - settings().metricsRetentionDays * day);
   store.audit.purge(now - 365 * day);
-  store.events.purge(now - 90 * day);
+  store.events.purge(now - settings().eventRetentionDays * day);
   store.maintenance.purgeOld(now - 30 * day);
   store.energy.purge(now - 3 * 365 * day);
 }, 3_600_000);

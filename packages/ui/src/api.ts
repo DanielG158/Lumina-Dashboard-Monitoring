@@ -104,6 +104,7 @@ export interface ChannelType {
 
 export interface AppSettings {
   forecastWarnDays: number;
+  eventRetentionDays: number;
   sessionIdleMinutes: number;
   alertConfirmPolls: number;
   metricsRetentionDays: number;
@@ -291,6 +292,11 @@ export const api = {
   metricKeys: (id: string) => req<string[]>(`/instances/${enc(id)}/metric-keys`),
 
   alerts: () => req<AlertsPayload>("/alerts"),
+  alertHistory: (f: { before?: number; instance?: string; severity?: string; state?: string; q?: string; since?: number; limit?: number }) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== "") p.set(k, String(v));
+    return req<{ events: EventRow[]; hasMore: boolean; total: number; instances: string[] }>(`/alerts/history?${p}`);
+  },
   mute: (key: string) => req("/alerts/mute", json("POST", { key })),
   unmute: (key: string) => req(`/alerts/mute?key=${enc(key)}`, { method: "DELETE" }),
 

@@ -66,9 +66,11 @@ if (process.env.DEBUG_UI) console.log("expanded:", await page.locator("button.ca
 const txt1 = await page.locator("body").innerText();
 check("the Network checks card lists each check with its state", /Gateway tcp/.test(txt1) && /Web/.test(txt1) && /Dead/.test(txt1) && /Connection refused/.test(txt1));
 check("the summary counts are shown", /Checks up\s*2\/3/.test(txt1), (txt1.match(/Checks up[^\n]*\n?[^\n]*/) ?? [""])[0]);
-const txt2 = await page.locator("body").innerText();
-check("the SNMP card shows the interfaces with traffic", /igb0/.test(txt2) && /WAN/.test(txt2) && /Mbit\/s/.test(txt2));
-check("a watched link that is down is flagged", /igb1/.test(txt2) && /watched/.test(txt2));
+let txt2 = "";
+const snmpShown = await until(async () => { await expandAll(); txt2 = await page.locator("body").innerText(); return /igb0/.test(txt2) && /Mbit\/s/.test(txt2); }, 45000);
+check("the SNMP card shows the interfaces with traffic", snmpShown, snmpShown ? "" : txt2.replace(/\s+/g, " ").slice(-700));
+check("anonymous viewers do not see the interface labels (WAN, LAN)", !/\bWAN\b/.test(txt2) && !/\bLAN\b(?!-)/.test(txt2.replace(/LAN-Checks/g, "")));
+check("a watched link that is down is flagged", /igb1/.test(txt2) && /watched/.test(txt2), snmpShown ? "" : txt2.replace(/\s+/g, " ").slice(0, 200));
 await page.screenshot({ path: process.env.SHOT ?? join(dir, "net.png"), fullPage: true });
 await page.getByRole("button", { name: "Alerts" }).first().click();
 await page.waitForTimeout(1200);

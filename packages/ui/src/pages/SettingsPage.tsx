@@ -15,11 +15,11 @@ function General() {
   const [s, setS] = useState<AppSettings | null>(null);
   useEffect(() => { api.settings().then(setS).catch((e) => notify(err(e), true)); }, [notify]);
   if (!s) return <div className="empty">Loading…</div>;
-  const num = (k: "sessionIdleMinutes" | "alertConfirmPolls" | "metricsRetentionDays" | "forecastWarnDays") => (e: React.ChangeEvent<HTMLInputElement>) => setS({ ...s, [k]: Number(e.target.value) });
+  const num = (k: "sessionIdleMinutes" | "alertConfirmPolls" | "metricsRetentionDays" | "forecastWarnDays" | "eventRetentionDays") => (e: React.ChangeEvent<HTMLInputElement>) => setS({ ...s, [k]: Number(e.target.value) });
   async function save(e: FormEvent) {
     e.preventDefault();
     try {
-      await api.saveSettings({ sessionIdleMinutes: s!.sessionIdleMinutes, alertConfirmPolls: s!.alertConfirmPolls, metricsRetentionDays: s!.metricsRetentionDays, forecastWarnDays: s!.forecastWarnDays, publicView: s!.publicView });
+      await api.saveSettings({ sessionIdleMinutes: s!.sessionIdleMinutes, alertConfirmPolls: s!.alertConfirmPolls, metricsRetentionDays: s!.metricsRetentionDays, forecastWarnDays: s!.forecastWarnDays, eventRetentionDays: s!.eventRetentionDays, publicView: s!.publicView });
       notify("Settings saved");
       await reloadAuth();
     } catch (x) { notify(err(x), true); }
@@ -37,6 +37,9 @@ function General() {
       </Field>
       <Field label="Keep history for (days)" help="Charts use this history. Longer uses more disk.">
         <input className="field" type="number" min={1} max={365} value={s.metricsRetentionDays} onChange={num("metricsRetentionDays")} />
+      </Field>
+      <Field label="Keep alert history for (days)" help="The Alerts page keeps every alert that long, with search and filters. Alerts that are still active are never removed.">
+        <input className="field" type="number" min={7} max={3650} value={s.eventRetentionDays} onChange={num("eventRetentionDays")} />
       </Field>
       <Field label="Warn when a storage volume will be full within (days)" help="Lumina predicts when each volume fills up from its recent history, and raises an alert when that is closer than this.">
         <input className="field" type="number" min={1} max={365} value={s.forecastWarnDays} onChange={num("forecastWarnDays")} />

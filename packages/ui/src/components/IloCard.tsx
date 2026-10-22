@@ -98,7 +98,10 @@ export function IloCard(props: CardProps) {
         <>
           {loading && <div className="sub" style={{ marginBottom: 8 }}>Loading hardware details from iLO — the first load takes about 30 seconds…</div>}
           {d.warnings.length > 0 && (
-            <div className="error" title={d.warnings.join("\n")}>Some data could not be read: {d.warnings.map((w) => w.split(":")[0]).join(", ")}</div>
+            <div className="error">
+              Some data could not be read from the iLO:
+              <ul style={{ margin: "4px 0 0 18px", padding: 0 }}>{d.warnings.map((w) => <li key={w} style={{ wordBreak: "break-word" }}>{w}</li>)}</ul>
+            </div>
           )}
 
           <div className="grid">
