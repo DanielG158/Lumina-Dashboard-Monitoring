@@ -149,7 +149,7 @@ export default defineModule<Config>({
             const kind = await probeUdpPort(config.host, config.port);
             const base = explainNoAnswer(kind, config.host, config.port, config.version);
             throw new Error(kind === "closed"
-              ? `${base} On an HPE iLO: Security, Access Settings, set "SNMP Access" to Enabled (port ${config.port}), then Management, SNMP Settings, set a read community (or an SNMPv3 user) and switch on Agentless Management.`
+              ? `${base} If the path is clear, on the iLO check Security, Access Settings, "SNMP Access" is Enabled (port ${config.port}), and under Management, SNMP Settings a read community (or an SNMPv3 user) is set and Agentless Management is on.`
               : `${base} On an HPE iLO the community is set under Management, SNMP Settings, and the iLO only answers addresses allowed there.`);
           }
           throw new Error(explainCrypto(m));

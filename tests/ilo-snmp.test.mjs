@@ -63,7 +63,7 @@ await pi.dispose?.(); partial.close();
 const closed = await new Promise((r) => { const d = createRequire(import.meta.url)("node:dgram").createSocket("udp4"); d.bind(0, "127.0.0.1", () => { const x = d.address().port; d.close(() => r(x)); }); });
 const none = await mod.create(mod.configSchema.parse({ host: "127.0.0.1", port: closed, community: "public" }), { log });
 let en = null; try { await none.poll(); } catch (x) { en = x.message; }
-check("when the iLO does not listen the message says to enable SNMP Access in the iLO's Access Settings", /Nothing is listening for SNMP/.test(en ?? "") && /Access Settings/.test(en ?? "") && /SNMP Access/.test(en ?? ""), en);
+check("when the iLO does not listen the message says to enable SNMP Access in the iLO's Access Settings", /port closed/.test(en ?? "") && /router or firewall/.test(en ?? "") && /Access Settings/.test(en ?? "") && /SNMP Access/.test(en ?? ""), en);
 await none.dispose?.();
 check("settings are validated like the SNMP module's", !mod.configSchema.safeParse({ host: "x" }).success && mod.configSchema.safeParse({ host: "x", community: "public" }).success);
 process.exit(ok ? 0 : 1);

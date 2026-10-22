@@ -21,7 +21,7 @@ for (const [bad, why] of [["x | ping | -f", "an option-looking host"], ["x | pin
 }
 check("ping output is understood", (() => { const r = nc.parsePing("4 packets transmitted, 3 received, 25% packet loss, time 900ms\nrtt min/avg/max/mdev = 0.500/1.250/2.000/0.600 ms"); return r.sent === 4 && r.received === 3 && r.avg === 1.25 && r.mdev === 0.6; })());
 
-check("silence, rejection and unreachable hosts are told apart", /dropping them/.test(nc.explainNoReply("4 packets transmitted, 0 received, 100% packet loss")) && /firewall/.test(nc.explainNoReply("From 10.0.0.1 icmp_seq=1 Packet filtered")) && /unreachable/i.test(nc.explainNoReply("From 10.0.0.9 icmp_seq=1 Destination Host Unreachable")));
+check("silence, rejection and unreachable hosts are told apart", /dropping them/.test(nc.explainNoReply("4 packets transmitted, 0 received, 100% packet loss")) && /firewall/.test(nc.explainNoReply("From 10.0.0.1 icmp_seq=1 Packet filtered")) && /router/.test(nc.explainNoReply("From 192.168.11.1 icmp_seq=1 Destination Port Unreachable")) && /unreachable/i.test(nc.explainNoReply("From 10.0.0.9 icmp_seq=1 Destination Host Unreachable")));
 
 // ---- netcheck against local services ---------------------------------------------------------------------------------
 const tcp = net.createServer((s) => s.end()); await new Promise((r) => tcp.listen(0, "127.0.0.1", r));
@@ -141,7 +141,7 @@ check("a port with nothing behind it is recognised as closed", (await sn.probeUd
 check("a port that is answered by nobody in particular is not mistaken for closed", (await sn.probeUdpPort("127.0.0.1", SPORT)) === "silent");
 const noSnmp = await sn.default.create(sc2.parse({ host: "127.0.0.1", port: closedPort, community: "lab" }), { log });
 let err2 = null; try { await noSnmp.poll(); } catch (e) { err2 = e.message; }
-check("the card says SNMP is not running when nothing listens", /Nothing is listening for SNMP/.test(err2 ?? ""), err2);
+check("the card says SNMP is not running when nothing listens", /port closed/.test(err2 ?? ""), err2);
 check("a wrong community is explained as such", /community is wrong/.test(err ?? ""), err);
 await noSnmp.dispose?.();
 

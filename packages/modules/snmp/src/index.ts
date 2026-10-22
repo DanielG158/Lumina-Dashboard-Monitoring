@@ -120,7 +120,7 @@ export function probeUdpPort(host: string, port: number, waitMs = 700): Promise<
 
 export function explainNoAnswer(kind: "closed" | "silent", host: string, port: number, version: string): string {
   return kind === "closed"
-    ? `Nothing is listening for SNMP on ${host}:${port}. The device answers the network but SNMP is not switched on there (or it only listens on its own loopback address, or its firewall rejects UDP ${port}). Enable the SNMP service on the device first.`
+    ? `Something answered "port closed" for UDP ${port} at ${host}. That is either the device (SNMP is not switched on there, or it only listens on its own loopback address) or, just as often, a router or firewall between this Lumina and the device that rejects UDP ${port}. If the device is on another subnet, check the router's firewall rules first (allow UDP ${port} from this Lumina's address to the device).`
     : `No answer from ${host}:${port}. The device ignores the request, which usually means the ${version === "3" ? "SNMPv3 user or keys are wrong" : "community is wrong"}, a firewall drops UDP ${port}, or the device only answers certain addresses (allow this Lumina's address in its SNMP settings).`;
 }
 

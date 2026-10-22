@@ -100,7 +100,7 @@ export function parsePing(out: string): { sent: number; received: number; min: n
 
 /** Why nobody answered, from what ping printed: a firewall that rejects, a host that is not there, or silence (usually a firewall that drops pings). */
 export function explainNoReply(out: string): string {
-  if (/Packet filtered|Prohibited|administratively|Communication.*prohibited/i.test(out)) return "Pings are rejected by a firewall";
+  if (/Packet filtered|Prohibited|administratively|Communication.*prohibited|Destination Port Unreachable/i.test(out)) return "Pings are rejected by a firewall or router on the way";
   if (/Destination Host Unreachable|Host Unreachable/i.test(out)) return "Host unreachable (not on the network, or no route)";
   if (/Destination Net Unreachable|Network is unreachable/i.test(out)) return "No route to that network";
   return "No reply to pings (a firewall may be dropping them; a TCP check on an open port still works)";
