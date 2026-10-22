@@ -83,6 +83,36 @@ export function explainNoAnswer(kind: "closed" | "silent", host: string, port: n
     : `No answer from ${host}:${port}. The device ignores the request, which usually means the ${version === "3" ? "SNMPv3 user or keys are wrong" : "community is wrong"}, a firewall drops UDP ${port}, or the device only answers certain addresses (allow this Lumina's address in its SNMP settings).`;
 }
 
+/** The device's SNMP agent answers "authorizationError" when the login is fine but its access settings hide what was asked for. */
+export const isDenied = (e: unknown): boolean => /authorizationerror/i.test(e instanceof Error ? e.message : String(e)) || (e as { status?: number } | null)?.status === 16;
+
+/** System name, uptime and description. If a device hides some of them, the others are still read one at a time. */
+export async function getSystem(get: (oids: string[]) => Promise<Obj[]>, oids: string[]): Promise<(Obj | undefined)[]> {
+  try {
+    return await get(oids);
+  } catch (e) {
+    if (!isDenied(e)) throw e;
+    const out: (Obj | undefined)[] = [];
+    for (const o of oids) {
+      try { out.push((await get([o]))[0]); } catch (x) { if (!isDenied(x)) throw x; out.push(undefined); }
+    }
+    return out;
+  }
+}
+
+const COLUMN_SETS = [[2, 3, 5, 8, 10, 14, 16, 20], [2, 3, 5, 8, 10, 16], [2, 8]];
+/** The interface table, asking for fewer columns when the device only allows some of them. */
+export async function readIfTable(table: (oid: string, columns: number[]) => Promise<Obj>, oid: string, host: string, port: number, version: string): Promise<Obj> {
+  for (const cols of COLUMN_SETS) {
+    try {
+      return await table(oid, cols);
+    } catch (e) {
+      if (!isDenied(e)) throw e;
+    }
+  }
+  throw new Error(`${host}:${port} accepted the SNMP login but refuses to show its interface list (SNMP error "authorizationError"). The device's own access settings hide that part of its data. Allow the interfaces part (1.3.6.1.2.1.2 and 1.3.6.1.2.1.31) for this ${version === "3" ? "SNMPv3 user" : "community"}, or use the read-only login the device offers. If it cannot show interfaces at all, monitor it with Network checks (ping and ports) instead.`);
+}
+
 const text = (v: unknown): string | null => (v === undefined || v === null ? null : Buffer.isBuffer(v) ? v.toString("utf8").replace(/\0+$/, "") : String(v));
 /** Counters come as numbers (32 bit) or 8-byte buffers (64 bit). */
 export function counter(v: unknown): bigint | null {
@@ -115,7 +145,7 @@ export default defineModule<Config>({
     { key: "version", label: "SNMP version (2c or 3)", type: "text", default: "2c", help: "Use 3 where the device supports it: version 2c sends its community in clear text." },
     { key: "community", label: "Community (version 2c)", type: "password", help: "Often \"public\". Allow only this Lumina's address on the device." },
     { key: "user", label: "User (version 3)", type: "text" },
-    { key: "authProtocol", label: "Authentication (sha, sha256, sha512, md5, none)", type: "text", default: "sha" },
+    { key: "authProtocol", label: "Authentication (sha, sha256, sha512, md5, none)", type: "text", default: "sha", help: "Must match the device. TP-Link Omada's default SNMPv3 mode uses md5 with no encryption (privacy none); its recommended mode adds aes or des." },
     { key: "authKey", label: "Authentication key (version 3)", type: "password" },
     { key: "privProtocol", label: "Encryption (aes, aes256b, des, none)", type: "text", default: "aes" },
     { key: "privKey", label: "Encryption key (version 3)", type: "password" },
@@ -156,16 +186,22 @@ export default defineModule<Config>({
       async poll() {
         let sys: Obj[];
         try {
-          sys = await get([OID.sysDescr, OID.sysUpTime, OID.sysName]);
+          sys = (await getSystem(get, [OID.sysDescr, OID.sysUpTime, OID.sysName])) as Obj[];
         } catch (e) {
           healthy = false;
           const m = e instanceof Error ? e.message : String(e);
           throw new Error(/timeout|timed out/i.test(m) ? explainNoAnswer(await probeUdpPort(config.host, config.port), config.host, config.port, config.version) : m);
         }
-        const [ifT, ifX] = await Promise.all([
-          table(OID.ifTable, [2, 3, 5, 8, 10, 14, 16, 20]),
-          table(OID.ifXTable, [1, 6, 10, 15, 18]).catch(() => ({} as Obj)),
-        ]);
+        let ifT: Obj, ifX: Obj;
+        try {
+          [ifT, ifX] = await Promise.all([
+            readIfTable(table, OID.ifTable, config.host, config.port, config.version),
+            table(OID.ifXTable, [1, 6, 10, 15, 18]).catch(() => ({} as Obj)),
+          ]);
+        } catch (e) {
+          healthy = false;
+          throw e;
+        }
         const extra = await get([OID.load1, OID.memTotal, OID.memAvail]).catch(() => [] as Obj[]);
         healthy = true;
 

@@ -61,6 +61,20 @@ const slow = inst.alerts({ ...d, speed: { downMbps: 20, upMbps: 5, latencyMs: 10
 check("a speed below your limit raises a warning", slow.some((a) => a.key === "speed-low" && a.severity === "warning"));
 await inst.dispose?.(); await inst2.dispose?.();
 
+// ---- a device that hides parts of its data (SNMP authorizationError) ----
+const denied = () => Object.assign(new Error("AuthorizationError"), { status: 16 });
+check("authorizationError is recognised", sn.isDenied(denied()) && sn.isDenied(new Error("AuthorizationError")) && !sn.isDenied(new Error("Request timed out")));
+let calls = [];
+const sys = await sn.getSystem(async (oids) => { calls.push(oids.length); if (oids.length > 1) throw denied(); if (oids[0].endsWith(".1.0")) throw denied(); return [{ value: "ok:" + oids[0] }]; }, ["1.3.6.1.2.1.1.1.0", "1.3.6.1.2.1.1.3.0", "1.3.6.1.2.1.1.5.0"]);
+check("when the system group is partly hidden the rest is still read one by one", sys.length === 3 && sys[0] === undefined && sys[1].value.startsWith("ok:") && sys[2].value.startsWith("ok:"), JSON.stringify(calls));
+let tries = [];
+const t1 = await sn.readIfTable(async (oid, cols) => { tries.push(cols.length); if (cols.length > 6) throw denied(); return { 1: { 2: "eth0" } }; }, "1.3.6.1.2.1.2.2", "h", 161, "2c");
+check("a device that only allows some interface columns gets a smaller request", t1[1][2] === "eth0" && tries.join() === "8,6", tries.join());
+let msg = null; try { await sn.readIfTable(async () => { throw denied(); }, "1.3.6.1.2.1.2.2", "10.0.0.5", 161, "3"); } catch (e) { msg = e.message; }
+check("a device that hides the whole interface list is explained, with what to allow and what to use instead", /accepted the SNMP login but refuses to show its interface list/.test(msg ?? "") && /SNMPv3 user/.test(msg ?? "") && /1\.3\.6\.1\.2\.1\.2/.test(msg ?? "") && /Network checks/.test(msg ?? ""), msg);
+let other = null; try { await sn.readIfTable(async () => { throw new Error("Request timed out"); }, "x", "h", 161, "2c"); } catch (e) { other = e.message; }
+check("other errors are passed through untouched", other === "Request timed out");
+
 // ---- what anonymous viewers may see ----
 const { redactState } = await import(ROOT + "/packages/core/dist/redact.js");
 const red = redactState({ instanceId: "N", moduleId: "netcheck", status: "connected", enabled: true, error: null, data: d });
