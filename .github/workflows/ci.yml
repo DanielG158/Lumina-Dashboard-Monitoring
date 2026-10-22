@@ -3,6 +3,10 @@ on:
   push:
     branches: [main]
   pull_request:
+# A newer push replaces a run that is still going.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   test:
     runs-on: ubuntu-latest
