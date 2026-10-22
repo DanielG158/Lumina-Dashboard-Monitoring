@@ -8,6 +8,7 @@ import { KumaCard } from "../components/KumaCard";
 import { ProxmoxCard } from "../components/ProxmoxCard";
 import { NetCheckCard } from "../components/NetCheckCard";
 import { TplinkRouterCard } from "../components/TplinkRouterCard";
+import { IloSnmpCard } from "../components/IloSnmpCard";
 import { OmadaCard } from "../components/OmadaCard";
 import { SnmpCard } from "../components/SnmpCard";
 import { RemoteCard } from "../components/RemoteCard";
@@ -18,6 +19,7 @@ const CARDS: Record<string, (props: CardProps) => ReactElement> = {
   proxmox: ProxmoxCard,
   apcupsd: UpsCard,
   ilo4: IloCard,
+  "ilo-snmp": IloSnmpCard,
   cloudflare: CloudflareCard,
   "uptime-kuma": KumaCard,
   lumina: RemoteCard,

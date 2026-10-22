@@ -7,27 +7,68 @@ import { defineModule, type AlertCondition } from "@lumina/sdk";
 const snmp: any = (snmpNs as any).default ?? snmpNs;
 type Obj = Record<string, any>;
 
+/** The settings every SNMP module needs to reach a device; other SNMP modules (iLO) reuse them. */
+export const connectionShape = {
+  host: z.string().min(1).max(253),
+  port: z.number().int().min(1).max(65535).default(161),
+  version: z.enum(["2c", "3"]).default("2c"),
+  community: z.string().max(200).optional(),
+  user: z.string().max(100).optional(),
+  authProtocol: z.enum(["sha", "sha256", "sha512", "md5", "none"]).default("sha"),
+  authKey: z.string().max(200).optional(),
+  privProtocol: z.enum(["aes", "aes256b", "des", "none"]).default("aes"),
+  privKey: z.string().max(200).optional(),
+};
+export type ConnectionConfig = z.infer<z.ZodObject<typeof connectionShape>>;
+export function checkConnection(c: ConnectionConfig, ctx: z.RefinementCtx) {
+  if (c.version === "2c" && !c.community) ctx.addIssue({ code: "custom", path: ["community"], message: "Enter the SNMP community" });
+  if (c.version === "3" && !c.user) ctx.addIssue({ code: "custom", path: ["user"], message: "Enter the SNMPv3 user name" });
+  if (c.version === "3" && c.authProtocol !== "none" && (c.authKey ?? "").length < 8) ctx.addIssue({ code: "custom", path: ["authKey"], message: "The authentication key must be at least 8 characters" });
+  if (c.version === "3" && c.privProtocol !== "none" && c.authProtocol === "none") ctx.addIssue({ code: "custom", path: ["privProtocol"], message: "Encryption needs authentication too" });
+  if (c.version === "3" && c.privProtocol !== "none" && (c.privKey ?? "").length < 8) ctx.addIssue({ code: "custom", path: ["privKey"], message: "The encryption key must be at least 8 characters" });
+}
+
+/** The form fields that go with {@link connectionShape}. */
+export const connectionFields = [
+  { key: "host", label: "Device address", type: "text" as const, required: true, placeholder: "192.168.1.1" },
+  { key: "port", label: "Port", type: "number" as const, default: 161 },
+  { key: "version", label: "SNMP version (2c or 3)", type: "text" as const, default: "2c", help: "Use 3 where the device supports it: version 2c sends its community in clear text." },
+  { key: "community", label: "Community (version 2c)", type: "password" as const, help: "Often \"public\". Allow only this Lumina's address on the device." },
+  { key: "user", label: "User (version 3)", type: "text" as const },
+  { key: "authProtocol", label: "Authentication (sha, sha256, sha512, md5, none)", type: "text" as const, default: "sha", help: "Must match the device. TP-Link Omada's default SNMPv3 mode uses md5 with no encryption (privacy none); its recommended mode adds aes or des. HPE iLO uses md5 or sha." },
+  { key: "authKey", label: "Authentication key (version 3)", type: "password" as const },
+  { key: "privProtocol", label: "Encryption (aes, aes256b, des, none)", type: "text" as const, default: "aes" },
+  { key: "privKey", label: "Encryption key (version 3)", type: "password" as const },
+];
+
+/** A session to the device plus small promise helpers, and the helper to look at a value. */
+export function openSession(config: ConnectionConfig, timeoutMs = 4000, retries = 1) {
+  const opts = { port: config.port, timeout: timeoutMs, retries, version: config.version === "3" ? snmp.Version3 : snmp.Version2c };
+  const session: Obj =
+    config.version === "3"
+      ? snmp.createV3Session(
+          config.host,
+          { name: config.user, level: config.authProtocol === "none" ? snmp.SecurityLevel.noAuthNoPriv : config.privProtocol === "none" ? snmp.SecurityLevel.authNoPriv : snmp.SecurityLevel.authPriv,
+            authProtocol: snmp.AuthProtocols[config.authProtocol], authKey: config.authKey, privProtocol: snmp.PrivProtocols[config.privProtocol], privKey: config.privKey },
+          opts,
+        )
+      : snmp.createSession(config.host, config.community, opts);
+  session.on("error", () => undefined);
+  const get = (oids: string[]) => new Promise<Obj[]>((resolve, reject) => session.get(oids, (e: Error | null, vbs: Obj[]) => (e ? reject(e) : resolve(vbs))));
+  const table = (oid: string, columns: number[]) => new Promise<Obj>((resolve, reject) => session.tableColumns(oid, columns, 20, (e: Error | null, t: Obj) => (e ? reject(e) : resolve(t))));
+  const val = (vb: Obj | undefined) => (vb && !snmp.isVarbindError(vb) ? vb.value : undefined);
+  return { session, get, table, val, close: () => { try { session.close(); } catch { /* already closed */ } } };
+}
+
 const ConfigSchema = z
   .object({
-    host: z.string().min(1).max(253),
-    port: z.number().int().min(1).max(65535).default(161),
-    version: z.enum(["2c", "3"]).default("2c"),
-    community: z.string().max(200).optional(),
-    user: z.string().max(100).optional(),
-    authProtocol: z.enum(["sha", "sha256", "sha512", "md5", "none"]).default("sha"),
-    authKey: z.string().max(200).optional(),
-    privProtocol: z.enum(["aes", "aes256b", "des", "none"]).default("aes"),
-    privKey: z.string().max(200).optional(),
+    ...connectionShape,
     watch: z.string().max(500).optional(),
     hide: z.string().max(200).default("^(lo|lo0|pflog\\d*|pfsync\\d*|enc\\d*|ipsec\\d*)$"),
     busyPct: z.number().min(1).max(100).default(90),
   })
   .superRefine((c, ctx) => {
-    if (c.version === "2c" && !c.community) ctx.addIssue({ code: "custom", path: ["community"], message: "Enter the SNMP community" });
-    if (c.version === "3" && !c.user) ctx.addIssue({ code: "custom", path: ["user"], message: "Enter the SNMPv3 user name" });
-    if (c.version === "3" && c.authProtocol !== "none" && (c.authKey ?? "").length < 8) ctx.addIssue({ code: "custom", path: ["authKey"], message: "The authentication key must be at least 8 characters" });
-    if (c.version === "3" && c.privProtocol !== "none" && c.authProtocol === "none") ctx.addIssue({ code: "custom", path: ["privProtocol"], message: "Encryption needs authentication too" });
-    if (c.version === "3" && c.privProtocol !== "none" && (c.privKey ?? "").length < 8) ctx.addIssue({ code: "custom", path: ["privKey"], message: "The encryption key must be at least 8 characters" });
+    checkConnection(c, ctx);
     try { new RegExp(c.hide); } catch { ctx.addIssue({ code: "custom", path: ["hide"], message: "Not a valid pattern" }); }
   });
 type Config = z.infer<typeof ConfigSchema>;
@@ -208,23 +249,7 @@ export default defineModule<Config>({
   async create(config) {
     const watch = new Set(watchList(config.watch).map((x) => x.toLowerCase()));
     const hide = new RegExp(config.hide);
-    const opts = { port: config.port, timeout: 4000, retries: 1, version: config.version === "3" ? snmp.Version3 : snmp.Version2c };
-    const session: Obj =
-      config.version === "3"
-        ? snmp.createV3Session(
-            config.host,
-            { name: config.user, level: config.authProtocol === "none" ? snmp.SecurityLevel.noAuthNoPriv : config.privProtocol === "none" ? snmp.SecurityLevel.authNoPriv : snmp.SecurityLevel.authPriv,
-              authProtocol: snmp.AuthProtocols[config.authProtocol], authKey: config.authKey, privProtocol: snmp.PrivProtocols[config.privProtocol], privKey: config.privKey },
-            opts,
-          )
-        : snmp.createSession(config.host, config.community, opts);
-    session.on("error", () => undefined);
-
-    const get = (oids: string[]) =>
-      new Promise<Obj[]>((resolve, reject) => session.get(oids, (e: Error | null, vbs: Obj[]) => (e ? reject(e) : resolve(vbs))));
-    const table = (oid: string, columns: number[]) =>
-      new Promise<Obj>((resolve, reject) => session.tableColumns(oid, columns, 20, (e: Error | null, t: Obj) => (e ? reject(e) : resolve(t))));
-    const val = (vb: Obj | undefined) => (vb && !snmp.isVarbindError(vb) ? vb.value : undefined);
+    const { session, get, table, val } = openSession(config);
 
     const prev = new Map<number, { t: number; in: bigint | null; out: bigint | null; err: bigint; bits: 32 | 64 }>();
     let healthy = false;

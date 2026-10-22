@@ -17,6 +17,7 @@
     "@lumina/module-apcupsd": "workspace:*",
     "@lumina/module-cloudflare": "workspace:*",
     "@lumina/module-ilo4": "workspace:*",
+    "@lumina/module-ilo-snmp": "workspace:*",
     "@lumina/module-lumina-remote": "workspace:*",
     "@lumina/module-netcheck": "workspace:*",
     "@lumina/module-omada": "workspace:*",

@@ -50,6 +50,10 @@ export function summarize(i: InstanceUpdate): string {
       const sm = d.summary as Obj | undefined;
       return `${sm?.up ?? 0}/${(d.targets ?? []).length} checks up${sm?.avgMs != null ? ` · ${sm.avgMs} ms` : ""}${sm?.avgLossPct ? ` · ${sm.avgLossPct}% loss` : ""}${d.speed?.downMbps != null ? ` · ↓ ${mbps(d.speed.downMbps)}` : ""}`;
     }
+    case "ilo-snmp": {
+      const hot = ((d.temps ?? []) as Obj[]).reduce((m: number, t: Obj) => Math.max(m, t.celsius), 0);
+      return `health ${d.overall ?? "?"}${d.powerW != null ? ` · ${d.powerW} W` : ""}${hot ? ` · hottest ${hot}°C` : ""}${(d.warnings ?? []).length ? ` · ${(d.warnings as unknown[]).length} unread` : ""}`;
+    }
     case "tplink-router": {
       const c = d.clients as Obj | undefined;
       return `${d.wan?.up ? "Internet up" : "NO INTERNET"}${c ? ` · ${c.total} clients` : ""}${d.cpu != null ? ` · CPU ${Math.round(d.cpu)}%` : ""}${d.busy ? " · admin page busy" : ""}`;
@@ -137,6 +141,13 @@ export function gather(instances: InstanceUpdate[]): Fleet {
       f.ilo = {
         instanceId: i.instanceId, powerState: d.powerState ?? null, powerW: d.power?.nowW ?? null, health: d.health ?? null,
         inletC: temps.find((t) => /inlet/i.test(t.name))?.celsius ?? null, hottestC: hottest?.celsius ?? null, critical: hottest?.criticalC ?? null,
+      };
+    } else if (i.moduleId === "ilo-snmp" && !f.ilo) {
+      const temps = (d.temps ?? []) as Obj[];
+      const hottest = temps.length ? temps.reduce((a, t) => (t.celsius > a.celsius ? t : a)) : null;
+      f.ilo = {
+        instanceId: i.instanceId, powerState: "On", powerW: d.powerW ?? null, health: d.overall === "ok" ? "OK" : d.overall === "unknown" ? null : d.overall === "degraded" ? "Warning" : "Critical",
+        inletC: temps.find((t) => /^Ambient/.test(t.name))?.celsius ?? null, hottestC: hottest?.celsius ?? null, critical: hottest?.limitC ?? null,
       };
     } else if (i.moduleId === "apcupsd" && !f.ups) {
       f.ups = {

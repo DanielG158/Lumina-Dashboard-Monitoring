@@ -14,7 +14,7 @@ const metricName = (n: string) => n.replace(/[,\s:]+/g, "_");
 const uptime = (s: number | null) => (s === null ? "—" : s >= 86400 ? `${Math.floor(s / 86400)} d ${Math.floor((s % 86400) / 3600)} h` : `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`);
 
 /** Admins: tries the usual SNMP setting combinations against the device and says which one it accepts. */
-function ProbePanel({ id }: { id: string }) {
+export function ProbePanel({ id }: { id: string }) {
   const { can, notify } = useLumina();
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<Probe | null>(null);

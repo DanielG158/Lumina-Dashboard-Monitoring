@@ -2,19 +2,13 @@ import type { ReactNode } from "react";
 
 /** Lumina mark: a sun-like burst on an accent gradient. */
 export function LuminaMark({ size = 30 }: { size?: number }) {
+  // The Lumina mark: a navy gate holding rising bars of light. Drawn at 548 x 648; `size` is the height.
   return (
-    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" style={{ flex: "none" }}>
-      <defs>
-        <linearGradient id="lumina-g" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" style={{ stopColor: "var(--accent)" }} />
-          <stop offset="1" stopColor="#8a5cff" />
-        </linearGradient>
-      </defs>
-      <rect width="32" height="32" rx="9" fill="url(#lumina-g)" />
-      <circle cx="16" cy="16" r="5" fill="#fff" />
-      <g stroke="#fff" strokeWidth="2" strokeLinecap="round" opacity="0.92">
-        <path d="M16 4.8v3M16 24.2v3M4.8 16h3M24.2 16h3M8.1 8.1l2.1 2.1M21.8 21.8l2.1 2.1M8.1 23.9l2.1-2.1M21.8 10.2l2.1-2.1" />
-      </g>
+    <svg height={size} width={(size * 548) / 648} viewBox="0 0 548 648" aria-hidden="true" style={{ flex: "none" }}>
+      <polygon fill="var(--mark-gate, #3a5096)" points="274,169 345,210 345,323 274,283 151,356 149,644 3,644 3,611 51,611 51,302" />
+      <rect fill="#f49437" x="306" y="414" width="39" height="230" /><rect fill="#f49437" x="241" y="494" width="39" height="150" /><rect fill="#f49437" x="175" y="558" width="39" height="86" />
+      <polygon fill="#fab14c" points="370,127 409,102 409,644 370,644" />
+      <polygon fill="#fab14c" points="435,25 473,2 473,286 496,302 496,612 544,612 544,644 435,644" />
     </svg>
   );
 }
@@ -30,6 +24,7 @@ const PATHS: Record<string, ReactNode> = {
   snmp: (<><rect x="3" y="8" width="18" height="8" rx="2" /><path d="M7 12h.01M11 12h.01M15 12h.01M19 12h.01" /><path d="M6 8V5M12 8V5M18 8V5" /></>),
   omada: (<><path d="M5 10a10 10 0 0 1 14 0" /><path d="M8 13a6 6 0 0 1 8 0" /><circle cx="12" cy="16.5" r="1.2" /><rect x="8" y="19" width="8" height="2" rx="1" /></>),
   "tplink-router": (<><rect x="3" y="12" width="18" height="7" rx="2" /><path d="M7 16h.01M11 16h.01" /><path d="M8 12V6M16 12V6" /><path d="M5.5 4.5a3.5 3.5 0 0 1 5 0M13.5 4.5a3.5 3.5 0 0 1 5 0" /></>),
+  "ilo-snmp": (<><rect x="3" y="4" width="18" height="7" rx="2" /><rect x="3" y="13" width="18" height="7" rx="2" /><path d="M7 7.5h.01M7 16.5h.01M12 7.5h5M12 16.5h5" /></>),
   bell: (<><path d="M6 9a6 6 0 1 1 12 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9Z" /><path d="M10 20a2 2 0 0 0 4 0" /></>),
   cpu: (<><rect x="6" y="6" width="12" height="12" rx="2" /><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3" /></>),
   bolt: <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" />,

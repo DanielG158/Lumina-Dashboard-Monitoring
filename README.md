@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/brand/lumina-logo.svg" alt="Lumina" width="360"></p>
+
 # Lumina
 
 **A modular dashboard for your homelab, made to stay on a screen all day.** One page shows whether Proxmox, your server's iLO, your UPS, Uptime Kuma and Cloudflare are healthy, raises alerts when they are not, and lets signed-in users do the everyday things (start a VM, power a server on, take a snapshot) without opening five different tools.
@@ -75,6 +77,16 @@ Works with ProLiant Gen8/Gen9 (iLO 4, firmware 2.30 or newer) and Gen10 (iLO 5).
 4. As with Proxmox, leave **Verify TLS** off and use **Detect** to pin the certificate.
 
 The first load of drives, memory and logs takes about 30 seconds. Parts the iLO will not give are listed on the card and appear in the Alerts page as low-priority "Could not read ..." entries. Fan speed cannot be changed (iLO does not allow it), so the cooling view is read-only. The iLO also does not like many simultaneous connections, so use a refresh rate of 15 seconds or slower.
+
+### HPE iLO over SNMP (the other way to read a ProLiant)
+
+If a server has no Redfish interface (ProLiant Gen7 and older, iLO 2 and iLO 3), or its iLO struggles with the many requests the Redfish module makes, read it over SNMP instead: **Add → HPE iLO (SNMP)**.
+
+1. In the iLO web page: **Administration → Management → SNMP Settings**. Turn on **Agentless Management** (iLO 4 and 5), set a read-only **community** (or an SNMPv3 user), and allow your Lumina's address. Use v3 where possible; the iLO uses md5 or sha.
+2. In Lumina, enter the iLO's address and the community (or the v3 user and keys). If it will not connect, press **Test the SNMP settings** on the card.
+3. It shows the overall server health and which parts are not OK, power draw (from the iLO's power meter), temperatures, fans, power supplies, processors, memory modules, and the Smart Array controller, logical drives and physical drives with their temperatures. Alerts are raised for a failed or degraded part, a sensor near or over its limit, a failed fan or power supply, a failed or hot drive and a memory module with too many corrected errors. Tables the iLO does not offer are listed as "could not be read" instead of failing the card.
+
+It reads HPE's published health tables (the `CPQ` MIBs) and never changes anything. It cannot power the server on or off; use the **HPE iLO** module for that. You can have both for the same server. History uses the same names as the Redfish module (power, hottest temperature), so energy tracking works with either. It has been tested against a fake iLO built from HPE's MIB definitions, **not yet against a real iLO**.
 
 ### UPS (apcupsd)
 
@@ -239,7 +251,7 @@ Lumina is a TypeScript monorepo: `packages/core` (Fastify, Socket.io, SQLite), `
 
 ## Status
 
-Lumina is young, and was written for and tested on one homelab. Proxmox, iLO 4, apcupsd and Uptime Kuma have run daily against real hardware. These have only been tested against automated fakes or briefly: **iLO 5 (Gen10), the Network checks, SNMP, TP-Link Omada and TP-Link Archer modules, watching another Lumina, the Cloudflare module and the Docker image**, and the scheduled actions and power buttons have never been run against real devices. Please read [the security notes](docs/security-assessment.md) before exposing it beyond your home network, and open an issue if something does not work.
+Lumina is young, and was written for and tested on one homelab. Proxmox, iLO 4, apcupsd and Uptime Kuma have run daily against real hardware. These have only been tested against automated fakes or briefly: **iLO 5 (Gen10), the Network checks, SNMP, HPE iLO (SNMP), TP-Link Omada and TP-Link Archer modules, watching another Lumina, the Cloudflare module and the Docker image**, and the scheduled actions and power buttons have never been run against real devices. Please read [the security notes](docs/security-assessment.md) before exposing it beyond your home network, and open an issue if something does not work.
 
 Not built yet: NUT support, email notifications, LDAP or two-factor sign-in, a mobile app, auto-update, device discovery.
 

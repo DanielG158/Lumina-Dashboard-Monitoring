@@ -11,6 +11,7 @@ import { z } from "zod";
 import proxmox from "@lumina/module-proxmox";
 import apcupsd from "@lumina/module-apcupsd";
 import ilo4 from "@lumina/module-ilo4";
+import iloSnmp from "@lumina/module-ilo-snmp";
 import luminaRemote from "@lumina/module-lumina-remote";
 import netcheck from "@lumina/module-netcheck";
 import omada from "@lumina/module-omada";
@@ -93,7 +94,7 @@ const audit = (req: FastifyRequest, action: string, target: string | null = null
   store.audit.add(user ?? req.user?.username ?? null, action, target, detail, clientIp(req));
 
 const registry = new ModuleRegistry(io, app.log);
-for (const mod of [proxmox, apcupsd, ilo4, cloudflare, uptimeKuma, luminaRemote, netcheck, snmpModule, omada, tplinkRouter]) registry.register(mod);
+for (const mod of [proxmox, apcupsd, ilo4, cloudflare, uptimeKuma, luminaRemote, netcheck, snmpModule, omada, tplinkRouter, iloSnmp]) registry.register(mod);
 registry.redact = redactState;
 
 const notifier = createNotifier(store, app.log);
