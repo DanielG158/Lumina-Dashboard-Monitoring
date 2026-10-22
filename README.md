@@ -9,7 +9,7 @@
 
 - **Wall display.** The Overview fits one screen with no scrolling at any size, text scales to fill it, and **TV mode** keeps the screen awake. Cards move every 15 seconds to prevent burn-in. If the connection to Lumina drops, the screen greys out and says so instead of showing old numbers.
 - **Proxmox.** Nodes, VMs and containers, storage, disks, backup jobs, tasks. Start, stop, reboot, **Snapshot**, **Back up now** and a **Console** link for each guest. Warns when a guest has no recent backup, and forecasts when a storage volume will fill up.
-- **HP iLO 4.** Power, temperatures, fans (with 24-hour charts), power supplies, drives, memory, logs, and power on/off buttons.
+- **HPE iLO 4 and 5.** Power, temperatures, fans (with 24-hour charts), power supplies, drives, memory, logs, and power on/off buttons.
 - **UPS (apcupsd), Uptime Kuma, Cloudflare tunnels.** Status, history, alerts. Cloudflare hostnames can be added and removed.
 - **Energy and cost.** Turns the UPS or iLO power reading into kWh and money for any day, range or billing cycle. Fully adjustable tariff (flat, time-of-day, progressive blocks), currency, tax, billing day and budget. Shows the cost per VM and container, projects the month, and has a helper to calibrate against your electricity meter.
 - **Alerts.** Every module reports warnings on its own card. Notifications to Discord, Slack, Telegram, ntfy or any webhook. Maintenance windows and scheduled actions (snapshot at 2 a.m., power on at 7 a.m.) keep planned work from raising false alarms.

@@ -10,9 +10,24 @@ const ConfigSchema = z.object({
 });
 type Config = z.infer<typeof ConfigSchema>;
 
-// iLO 4 speaks an early Redfish dialect (HP "Oem.Hp" extensions, `links` instead of `Links`), so responses are loosely typed.
+// iLO 4 speaks an early Redfish dialect (HP "Oem.Hp" extensions, `links` instead of `Links`); iLO 5 uses "Oem.Hpe", `Links`
+// and standard @odata.id references. Both are read here, so responses are loosely typed.
 type Obj = Record<string, any>;
-const hp = (o: Obj | undefined): Obj => o?.Oem?.Hp ?? {};
+const hp = (o: Obj | undefined): Obj => o?.Oem?.Hpe ?? o?.Oem?.Hp ?? {};
+const rollup = (st: Obj | undefined): string | null => st?.HealthRollup ?? st?.HealthRollUp ?? st?.Health ?? null;
+const link = (o: Obj | undefined, name: string): string | null => o?.Links?.[name]?.["@odata.id"] ?? o?.links?.[name]?.href ?? null;
+/** The iLO's own breakdown of what makes the server "Warning" or "Critical" (Oem AggregateHealthStatus). */
+export function healthComponents(system: Obj): { name: string; health: string }[] {
+  const agg = hp(system).AggregateHealthStatus as Obj | undefined;
+  if (!agg || typeof agg !== "object") return [];
+  const out: { name: string; health: string }[] = [];
+  for (const [k, v] of Object.entries(agg)) {
+    const name = k.replace(/([a-z])([A-Z])/g, "$1 $2");
+    if (v && typeof v === "object" && typeof (v as Obj).Status?.Health === "string") out.push({ name, health: (v as Obj).Status.Health });
+    else if (typeof v === "string" && /Redundancy$/.test(k) && !/^(Redundant|NotApplicable|Unknown)$/i.test(v)) out.push({ name, health: `${v}` });
+  }
+  return out;
+}
 const href = (m: Obj): string => m?.links?.self?.href ?? m?.["@odata.id"] ?? "";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -21,8 +36,8 @@ const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : n
 // Uses the iLO Redfish API (iLO 4 firmware 2.30+). Read-only: iLO 4 has no supported fan-control API.
 export default defineModule<Config>({
   id: "ilo4",
-  name: "HP iLO 4",
-  description: "Power, thermals, storage, memory, network, firmware and logs via the iLO Redfish API (iLO 4 firmware 2.30+).",
+  name: "HPE iLO (4 and 5)",
+  description: "Power, thermals, storage, memory, network, firmware and logs via the iLO Redfish API (iLO 4 firmware 2.30+, iLO 5).",
   fields: [
     { key: "host", label: "iLO URL", type: "text", required: true, placeholder: "https://192.168.11.x" },
     { key: "username", label: "Username", type: "text", required: true },
@@ -164,16 +179,16 @@ export default defineModule<Config>({
               serial: c.SerialNumber ?? null,
               cacheMiB: num(c.CacheMemorySizeMiB),
             });
-            const link = c.links?.PhysicalDrives?.href;
-            if (!link) continue;
-            for (const d of await each(link, 32)) {
+            const drivesLink = link(c, "PhysicalDrives");
+            if (!drivesLink) continue;
+            for (const d of await each(drivesLink, 32)) {
               drives.push({
                 location: d.Location ?? null,
                 model: d.Model ?? null,
                 serial: d.SerialNumber ?? null,
                 media: d.MediaType ?? null,
                 protocol: d.InterfaceType ?? null,
-                capacityGB: num(d.CapacityGB),
+                capacityGB: num(d.CapacityGB) ?? (num(d.CapacityMiB) !== null ? Math.round(((d.CapacityMiB as number) * 1048576) / 1e9) : null),
                 health: d.Status?.Health ?? null,
                 tempC: ((t) => (t !== null && t > 0 && t < 120 ? t : null))(num(d.CurrentTemperatureCelsius)),
                 rpm: num(d.RotationalSpeedRpm),
@@ -190,8 +205,14 @@ export default defineModule<Config>({
       {
         key: "network",
         ttl: 60_000,
-        load: async () =>
-          (await each("/redfish/v1/Systems/1/NetworkAdapters/", 8)).map((a) => ({
+        load: async () => {
+          // iLO 4 keeps them under NetworkAdapters; iLO 5 under BaseNetworkAdapters.
+          let list: Obj[] = [];
+          for (const path of ["/redfish/v1/Systems/1/NetworkAdapters/", "/redfish/v1/Systems/1/BaseNetworkAdapters/"]) {
+            try { list = await each(path, 8); } catch { list = []; }
+            if (list.length) break;
+          }
+          return list.map((a) => ({
             name: a.Name ?? "Network adapter",
             firmware: a.Firmware?.Current?.VersionString ?? null,
             ports: ((a.PhysicalPorts ?? []) as Obj[]).map((p) => ({
@@ -208,7 +229,8 @@ export default defineModule<Config>({
               goodTx: num(hp(p).GoodTransmits),
               badTx: num(hp(p).BadTransmits),
             })),
-          })),
+          }));
+        },
       },
       {
         key: "processors",
@@ -227,16 +249,18 @@ export default defineModule<Config>({
         key: "dimms",
         ttl: 1_800_000,
         load: async () =>
-          (await each("/redfish/v1/Systems/1/Memory/", 32)).map((d) => ({
-            slot: d.SocketLocator ?? d.Name ?? d.Id,
-            sizeGB: d.SizeMB ? d.SizeMB / 1024 : null,
-            type: d.DIMMType ?? null,
-            technology: d.DIMMTechnology ?? null,
-            mhz: num(d.MaximumFrequencyMHz),
-            rank: num(d.Rank),
-            ecc: d.ErrorCorrection ?? null,
-            status: d.DIMMStatus ?? null,
-          })),
+          (await each("/redfish/v1/Systems/1/Memory/", 48))
+            .filter((d) => d.Status?.State !== "Absent" && hp(d).DIMMStatus !== "NotPresent" && d.DIMMStatus !== "NotPresent")
+            .map((d) => ({
+              slot: d.SocketLocator ?? d.DeviceLocator ?? d.Name ?? d.Id,
+              sizeGB: d.SizeMB ? d.SizeMB / 1024 : d.CapacityMiB ? d.CapacityMiB / 1024 : null,
+              type: d.DIMMType ?? d.MemoryDeviceType ?? null,
+              technology: d.DIMMTechnology ?? hp(d).DIMMTechnology ?? d.BaseModuleType ?? null,
+              mhz: num(d.MaximumFrequencyMHz) ?? num(d.OperatingSpeedMhz) ?? num(d.AllowedSpeedsMHz?.[0]),
+              rank: num(d.Rank) ?? num(d.RankCount),
+              ecc: d.ErrorCorrection ?? null,
+              status: d.DIMMStatus ?? hp(d).DIMMStatus ?? null,
+            })),
       },
       { key: "iml", ttl: 120_000, load: () => lastEntries("/redfish/v1/Systems/1/LogServices/IML/Entries/") },
       { key: "iel", ttl: 120_000, load: () => lastEntries("/redfish/v1/Managers/1/LogServices/IEL/Entries/") },
@@ -245,11 +269,16 @@ export default defineModule<Config>({
         ttl: 1_800_000,
         load: async () => {
           const fw = (hp(await get("/redfish/v1/Chassis/1/")).Firmware ?? {}) as Obj;
-          return Object.entries(fw)
+          const fromChassis = Object.entries(fw)
             .map(([k, v]) => ({
               name: k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2"),
               version: String((v as Obj)?.Current?.VersionString ?? ""),
             }))
+            .filter((f) => f.version);
+          if (fromChassis.length > 0) return fromChassis;
+          // iLO 5 lists firmware in the standard update service instead.
+          return (await each("/redfish/v1/UpdateService/FirmwareInventory/", 60))
+            .map((f) => ({ name: String(f.Name ?? f.Id ?? "firmware"), version: String(f.Version ?? "") }))
             .filter((f) => f.version);
         },
       },
@@ -298,7 +327,8 @@ export default defineModule<Config>({
             sku: system.SKU ?? null,
             hostName: system.HostName ?? null,
             powerState: system.PowerState ?? null,
-            health: system.Status?.HealthRollup ?? system.Status?.Health ?? null,
+            health: rollup(system.Status),
+            healthParts: healthComponents(system),
             indicatorLed: system.IndicatorLED ?? null,
             postState: sys.PostState ?? null,
             bios: system.BiosVersion ?? null,
@@ -315,12 +345,12 @@ export default defineModule<Config>({
             cpu: {
               count: num(system.ProcessorSummary?.Count),
               model: system.ProcessorSummary?.Model ?? null,
-              health: system.ProcessorSummary?.Status?.HealthRollUp ?? null,
+              health: rollup(system.ProcessorSummary?.Status),
               processors,
             },
             memory: {
               totalGiB: num(system.MemorySummary?.TotalSystemMemoryGiB),
-              health: system.MemorySummary?.Status?.HealthRollUp ?? null,
+              health: rollup(system.MemorySummary?.Status),
               dimms,
             },
             power: {
@@ -377,7 +407,10 @@ export default defineModule<Config>({
       alerts(d: Obj) {
         const out: AlertCondition[] = [];
         const bad = (h: string | null | undefined) => !!h && h !== "OK" && h !== "Ok";
-        if (bad(d.health)) out.push({ key: "server-health", severity: "critical", title: `Server health is ${d.health}`, detail: d.model ?? undefined });
+        if (bad(d.health)) {
+          const parts = ((d.healthParts ?? []) as { name: string; health: string }[]).filter((x) => bad(x.health)).map((x) => `${x.name}: ${x.health}`);
+          out.push({ key: "server-health", severity: d.health === "Warning" ? "warning" : "critical", title: `Server health is ${d.health}`, detail: parts.length ? `Reported by iLO: ${parts.join(", ")}` : (d.model ?? undefined) });
+        }
         if (d.powerState && d.powerState !== "On") out.push({ key: "power-off", severity: "warning", title: "Server is powered off", detail: `Power state: ${d.powerState}` });
         if (bad(d.cpu?.health)) out.push({ key: "cpu-health", severity: "critical", title: "Processor health problem", detail: d.cpu.health });
         if (bad(d.memory?.health)) out.push({ key: "memory-health", severity: "critical", title: "Memory health problem", detail: d.memory.health });

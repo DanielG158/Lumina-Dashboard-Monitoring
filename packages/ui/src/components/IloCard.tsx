@@ -15,7 +15,7 @@ interface Drive {
 }
 interface Entry { id: string; time: string | null; severity: string; message: string }
 interface IloData {
-  model: string | null; serial: string | null; sku: string | null; hostName: string | null; powerState: string | null; health: string | null;
+  model: string | null; serial: string | null; sku: string | null; hostName: string | null; powerState: string | null; health: string | null; healthParts?: { name: string; health: string }[];
   indicatorLed: string | null; postState: string | null; bios: string | null; provisioning: string | null; powerRegulator: string | null;
   hostOs: { name: string; description: string | null } | null; tpm: string | null;
   smartBattery: { model: string; health: string | null; maxCapW: number | null; firmware: string | null }[];
@@ -93,7 +93,7 @@ export function IloCard(props: CardProps) {
   const loading = d && !d.storage && !d.ilo;
 
   return (
-    <CardShell {...props} tag={d?.model ?? "HP iLO 4"} historyPrefer={["power"]}>
+    <CardShell {...props} tag={d?.model ?? "HPE iLO"} historyPrefer={["power"]}>
       {d && (
         <>
           {loading && <div className="sub" style={{ marginBottom: 8 }}>Loading hardware details from iLO — the first load takes about 30 seconds…</div>}
@@ -106,6 +106,9 @@ export function IloCard(props: CardProps) {
               <div className="label"><span className={`dot ${d.powerState === "On" ? "running" : "stopped"}`} />Server power</div>
               <div className="value">{d.powerState ?? "—"}</div>
               <div className="sub"><span className={`dot ${healthDot(d.health)}`} style={{ marginRight: 6 }} />Health: {d.health ?? "unknown"}{d.postState ? ` · ${d.postState}` : ""}</div>
+              {d.healthParts && d.healthParts.filter((x) => x.health !== "OK").length > 0 && (
+                <div className="sub" style={{ color: "var(--warn)" }}>{d.healthParts.filter((x) => x.health !== "OK").map((x) => `${x.name}: ${x.health}`).join(" · ")}</div>
+              )}
               <div className="sub">{d.sku ?? ""}{d.serial ? ` · S/N ${d.serial}` : ""}</div>
               <div className="actions" style={{ justifyContent: "flex-start", margin: "8px 0 2px", flexWrap: "wrap" }}>
                 {can.operate && d.powerState === "Off" && <button className="btn sm primary" disabled={!!busy} onClick={() => power("power-on", "Power on")}>{busy === "power-on" ? "…" : "Power on"}</button>}
@@ -164,7 +167,7 @@ export function IloCard(props: CardProps) {
                   <div className="stat"><div className="label">Fan speed (average)</div><div className="value">{avg !== null ? `${Math.round(avg)}%` : "—"}</div><Spark instanceId={props.instance.instanceId} metric="fan:avg" range="24h" unit="%" /><div className="sub">{pct.length ? `${pct.length} fans · fastest ${Math.max(...pct)}%` : "last 24 h"}</div></div>
                   <div className="stat"><div className="label">Server power</div><div className="value">{d.power.nowW !== null ? `${d.power.nowW} W` : "—"}</div><Spark instanceId={props.instance.instanceId} metric="power" range="24h" unit=" W" /><div className="sub">fans rise with heat and load</div></div>
                 </div>
-                <div className="hint">iLO 4 manages the fans itself and does not allow changing their speed over the network, so this view is read-only. Rising fan speed with a steady load usually means dust or poor airflow.</div>
+                <div className="hint">The iLO manages the fans itself and Lumina cannot change their speed, so this view is read-only. Rising fan speed with a steady load usually means dust or poor airflow.</div>
               </Section>
             );
           })()}
@@ -317,7 +320,7 @@ export function IloCard(props: CardProps) {
                 <thead><tr><th>Component</th><th>Version</th></tr></thead>
                 <tbody>
                   {[
-                    { name: "iLO 4", version: d.ilo?.firmware ?? "" },
+                    { name: "iLO", version: d.ilo?.firmware ?? "" },
                     { name: "System ROM (BIOS)", version: d.bios ?? "" },
                     { name: "Smart Array controller", version: d.storage?.controllers[0]?.firmware ?? "" },
                     ...(d.network ?? []).map((n) => ({ name: n.name, version: n.firmware ?? "" })),

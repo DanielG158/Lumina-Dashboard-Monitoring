@@ -251,7 +251,26 @@ export function Overview({ kiosk = false, onExit }: { kiosk?: boolean; onExit?: 
               </div>
             </section>
           )}
-          {guests.length === 0 && monitors.length === 0 && (
+          {guests.length === 0 && monitors.length === 0 && L.instances.some((i) => i.moduleId === "ilo4" && i.data) && (
+            <section className="wpanel">
+              <h2>Servers</h2>
+              <div className="stack">
+                {L.instances.filter((i) => i.moduleId === "ilo4" && i.data).map((i) => {
+                  const d = i.data as { model: string | null; powerState: string | null; health: string | null; power: { nowW: number | null }; temperatures: { name: string; celsius: number }[]; fans: { reading: number | null; units: string }[]; healthParts?: { name: string; health: string }[] };
+                  const inlet = d.temperatures.find((t) => /inlet/i.test(t.name))?.celsius ?? null;
+                  const pct = d.fans.filter((f) => f.units === "Percent" && f.reading !== null).map((f) => f.reading as number);
+                  const bad = (d.healthParts ?? []).filter((x) => x.health !== "OK");
+                  return (
+                    <div key={i.instanceId} className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                      <span><span className={`dot ${d.health === "OK" ? "up" : d.health === "Warning" ? "pending" : "down"}`} style={{ marginRight: 8 }} /><b>{i.instanceId}</b> <span className="sub">{d.model ?? ""}</span></span>
+                      <span className="sub">{d.powerState ?? "—"} · {d.power.nowW ?? "—"} W{inlet !== null ? ` · inlet ${inlet}°C` : ""}{pct.length ? ` · fans ${Math.round(pct.reduce((a, b) => a + b, 0) / pct.length)}%` : ""}{bad.length ? ` · ${bad.map((x) => `${x.name}: ${x.health}`).join(", ")}` : ""}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+          {guests.length === 0 && monitors.length === 0 && !L.instances.some((i) => i.moduleId === "ilo4" && i.data) && (
             <section className="wpanel"><div className="empty">{L.instances.length ? "Waiting for data…" : L.can.admin ? "Nothing connected yet — open the Instances tab and add a module." : "Nothing is connected yet. An admin can add modules."}</div></section>
           )}
         </div>
