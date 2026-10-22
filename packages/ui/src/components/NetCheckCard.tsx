@@ -45,6 +45,11 @@ export function NetCheckCard(props: CardProps) {
               <code style={{ display: "block", userSelect: "all", marginTop: 4 }}>echo "net.ipv4.ping_group_range = 0 2147483647" | sudo tee /etc/sysctl.d/90-lumina-ping.conf && sudo sysctl --system</code>
             </div>
           )}
+          {!d.icmpBlocked && d.targets.some((t) => t.kind === "ping" && !t.ok) && d.targets.some((t) => t.kind !== "ping" && t.ok) && d.targets.filter((t) => t.kind === "ping").every((t) => !t.ok) && (
+            <div className="hint" style={{ marginBottom: 8 }}>
+              Every ping fails but the TCP, DNS or web checks work, so this network most likely drops pings (ICMP), often on purpose. The devices are probably fine. Use a TCP check on a port the device answers on (for example <code>192.168.1.1:443</code>) instead of a ping.
+            </div>
+          )}
           <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
             <div className="stat"><div className="label">Checks up</div><div className="value">{d.summary.up}/{d.targets.length}</div></div>
             <div className="stat"><div className="label">Average latency</div><div className="value">{d.summary.avgMs ?? "—"}<span className="sub"> ms</span></div><Spark instanceId={props.instance.instanceId} metric="rtt:avg" unit=" ms" /></div>

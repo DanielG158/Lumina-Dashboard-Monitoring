@@ -147,7 +147,9 @@ RestrictRealtime=true
 RestrictNamespaces=true
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
-SystemCallFilter=~@privileged @resources
+# Everything in @privileged and @resources is refused except setuid and capset, which the ping program calls to drop its
+# privileges (without them every ping check fails silently). A process without capabilities cannot use them to gain any.
+SystemCallFilter=~@chown @clock @module @raw-io @reboot @swap @resources _sysctl acct bpf chroot fanotify_init fanotify_mark nfsservctl open_by_handle_at pivot_root quotactl quotactl_fd setdomainname setfsuid setgroups sethostname setresuid setreuid vhangup
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 
 [Install]

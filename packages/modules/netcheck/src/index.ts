@@ -98,16 +98,24 @@ export function parsePing(out: string): { sent: number; received: number; min: n
   return { sent: c ? Number(c[1]) : 0, received: c ? Number(c[2]) : 0, min: r ? Number(r[1]) : null, avg: r ? Number(r[2]) : null, max: r ? Number(r[3]) : null, mdev: r ? Number(r[4]) : null };
 }
 
-function pingHost(host: string, packets: number): Promise<{ result: ReturnType<typeof parsePing> | null; blocked: boolean; error: string | null }> {
+/** Why nobody answered, from what ping printed: a firewall that rejects, a host that is not there, or silence (usually a firewall that drops pings). */
+export function explainNoReply(out: string): string {
+  if (/Packet filtered|Prohibited|administratively|Communication.*prohibited/i.test(out)) return "Pings are rejected by a firewall";
+  if (/Destination Host Unreachable|Host Unreachable/i.test(out)) return "Host unreachable (not on the network, or no route)";
+  if (/Destination Net Unreachable|Network is unreachable/i.test(out)) return "No route to that network";
+  return "No reply to pings (a firewall may be dropping them; a TCP check on an open port still works)";
+}
+
+function pingHost(host: string, packets: number): Promise<{ result: ReturnType<typeof parsePing> | null; blocked: boolean; error: string | null; text: string }> {
   return new Promise((resolve) => {
     // The host was validated (no leading dash, no spaces), and "--" keeps it from ever being read as an option.
-    execFile("ping", ["-n", "-c", String(packets), "-i", "0.3", "-W", "1", "-w", String(packets + 3), "--", host], { timeout: (packets + 6) * 1000 }, (err, stdout, stderr) => {
+    execFile("ping", ["-n", "-c", String(packets), "-i", "0.3", "-W", "1", "--", host], { timeout: (packets + 6) * 1000 }, (err, stdout, stderr) => {
       const text = `${stdout}\n${stderr}`;
-      if (/Operation not permitted|cap_net_raw|permission denied/i.test(text)) return resolve({ result: null, blocked: true, error: "The Lumina service is not allowed to send pings" });
-      if ((err as NodeJS.ErrnoException | null)?.code === "ENOENT") return resolve({ result: null, blocked: true, error: "The ping program is not installed" });
+      if (/Operation not permitted|cap_net_raw|permission denied/i.test(text)) return resolve({ result: null, blocked: true, error: "The Lumina service is not allowed to send pings", text });
+      if ((err as NodeJS.ErrnoException | null)?.code === "ENOENT") return resolve({ result: null, blocked: true, error: "The ping program is not installed", text });
       const result = parsePing(text);
-      if (result.sent === 0) return resolve({ result: null, blocked: false, error: /name or service not known|temporary failure/i.test(text) ? "Name could not be resolved" : "No answer" });
-      resolve({ result, blocked: false, error: null });
+      if (result.sent === 0) return resolve({ result: null, blocked: false, error: /name or service not known|temporary failure/i.test(text) ? "Name could not be resolved" : explainNoReply(text), text });
+      resolve({ result, blocked: false, error: null, text });
     });
   });
 }
@@ -248,7 +256,7 @@ export default defineModule<Config>({
         if (p.blocked) icmpBlocked = true;
         if (!p.result) return { ...base, ok: false, lossPct: 100, error: p.error };
         const loss = p.result.sent ? Math.round(((p.result.sent - p.result.received) / p.result.sent) * 1000) / 10 : 100;
-        return { ...base, ok: p.result.received > 0, ms: round1(p.result.avg), minMs: round1(p.result.min), maxMs: round1(p.result.max), jitterMs: round1(p.result.mdev), lossPct: loss, error: p.result.received > 0 ? null : "No answer" };
+        return { ...base, ok: p.result.received > 0, ms: round1(p.result.avg), minMs: round1(p.result.min), maxMs: round1(p.result.max), jitterMs: round1(p.result.mdev), lossPct: loss, error: p.result.received > 0 ? null : explainNoReply(p.text) };
       }
       const r = t.kind === "tcp" ? await (() => { const m = /^(\[[^\]]+\]|[^:]+):(\d+)$/.exec(t.target)!; return tcpCheck(m[1].replace(/^\[|\]$/g, ""), Number(m[2])); })() : t.kind === "dns" ? await dnsCheck(t.target) : await httpCheck(t.target);
       return { ...base, ok: r.error === null, ms: round1(r.ms), lossPct: r.error === null ? 0 : 100, error: r.error };

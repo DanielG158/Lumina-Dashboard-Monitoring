@@ -21,6 +21,8 @@ for (const [bad, why] of [["x | ping | -f", "an option-looking host"], ["x | pin
 }
 check("ping output is understood", (() => { const r = nc.parsePing("4 packets transmitted, 3 received, 25% packet loss, time 900ms\nrtt min/avg/max/mdev = 0.500/1.250/2.000/0.600 ms"); return r.sent === 4 && r.received === 3 && r.avg === 1.25 && r.mdev === 0.6; })());
 
+check("silence, rejection and unreachable hosts are told apart", /dropping them/.test(nc.explainNoReply("4 packets transmitted, 0 received, 100% packet loss")) && /firewall/.test(nc.explainNoReply("From 10.0.0.1 icmp_seq=1 Packet filtered")) && /unreachable/i.test(nc.explainNoReply("From 10.0.0.9 icmp_seq=1 Destination Host Unreachable")));
+
 // ---- netcheck against local services ---------------------------------------------------------------------------------
 const tcp = net.createServer((s) => s.end()); await new Promise((r) => tcp.listen(0, "127.0.0.1", r));
 const web = http.createServer((q, s) => {
