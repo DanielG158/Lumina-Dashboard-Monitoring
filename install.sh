@@ -69,9 +69,10 @@ id lumina >/dev/null 2>&1 || useradd --system --home-dir "$DATA_DIR" --shell /us
 
 # Network checks send pings as the unprivileged lumina user. Linux allows that without extra privileges once the group
 # is listed in ping_group_range (most distributions already allow everyone; this only widens it when it is too narrow).
-current_range="$(cat /proc/sys/net/ipv4/ping_group_range 2>/dev/null || echo "1 0")"
+# The kernel prints the two numbers separated by a tab, so read them as fields rather than cutting at a space.
+read -r ping_min ping_max < /proc/sys/net/ipv4/ping_group_range 2>/dev/null || { ping_min=1; ping_max=0; }
 lumina_gid="$(id -g lumina)"
-if [ "${current_range%% *}" -gt "$lumina_gid" ] || [ "${current_range##* }" -lt "$lumina_gid" ]; then
+if [ "${ping_min:-1}" -gt "$lumina_gid" ] || [ "${ping_max:-0}" -lt "$lumina_gid" ]; then
   echo "net.ipv4.ping_group_range = 0 2147483647" > /etc/sysctl.d/90-lumina-ping.conf
   sysctl -q -p /etc/sysctl.d/90-lumina-ping.conf >/dev/null 2>&1 || echo "Note: could not allow unprivileged pings here; ping checks will say so in the UI (TCP, DNS and web checks still work)."
 fi
@@ -178,8 +179,10 @@ for _ in $(seq 1 40); do
       echo
       echo "  Setup code (needed once, to create the first admin): $(cat "$DATA_DIR/setup-code")"
       echo
+      echo "Open it to create the admin account — or restore a backup from another Lumina."
+    else
+      echo "Your accounts, instances and settings were kept; sign in as before."
     fi
-    echo "Open it to create the admin account — or restore a backup from another Lumina."
     echo "Logs: journalctl -u lumina -f      Upgrade: re-run this installer."
     exit 0
   fi
