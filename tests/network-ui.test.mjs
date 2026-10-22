@@ -25,6 +25,12 @@ const web = http.createServer((q, s) => {
 const SPORT = 16188;
 const agent = snmp.createAgent({ port: SPORT, address: "127.0.0.1" }, () => undefined);
 agent.getAuthorizer().addCommunity("lab");
+// a second, separate device for the SNMPv3 test (a probe of a fake agent can upset it, and the first one must stay clean)
+const agent2 = snmp.createAgent({ port: SPORT + 1, address: "127.0.0.1" }, () => undefined);
+agent2.getAuthorizer().addUser({ name: "eap", level: snmp.SecurityLevel.authNoPriv, authProtocol: snmp.AuthProtocols.md5, authKey: "authpass1234" });
+const mib2 = agent2.getMib();
+mib2.registerProvider({ name: "sysName", type: snmp.MibProviderType.Scalar, oid: "1.3.6.1.2.1.1.5", scalarType: snmp.ObjectType.OctetString, maxAccess: snmp.MaxAccess["read-only"] });
+mib2.setScalarValue("sysName", "EAP670");
 const mib = agent.getMib();
 const col = (n, name, type) => ({ number: n, name, type, maxAccess: snmp.MaxAccess["read-only"] });
 mib.registerProvider({ name: "ifEntry", type: snmp.MibProviderType.Table, oid: "1.3.6.1.2.1.2.2.1", maxAccess: snmp.MaxAccess["not-accessible"], tableColumns: [col(1, "ifIndex", snmp.ObjectType.Integer), col(2, "ifDescr", snmp.ObjectType.OctetString), col(3, "ifType", snmp.ObjectType.Integer), col(5, "ifSpeed", snmp.ObjectType.Gauge), col(8, "ifOperStatus", snmp.ObjectType.Integer), col(10, "ifInOctets", snmp.ObjectType.Counter), col(14, "ifInErrors", snmp.ObjectType.Counter), col(16, "ifOutOctets", snmp.ObjectType.Counter), col(20, "ifOutErrors", snmp.ObjectType.Counter)], tableIndex: [{ columnName: "ifIndex" }] });
@@ -60,6 +66,8 @@ const { startFakeRouter } = await import("./helpers/tplink-fake.mjs");
 const router = await startFakeRouter({ mode: "aes" });
 r = await api("POST", "/api/instances", { moduleId: "omada", instanceId: "Wi-Fi", config: { url: omada.url, username: "viewer", password: "secret" }, pollIntervalSec: 10 });
 check("a TP-Link Omada controller is added", r.status === 201, JSON.stringify(r.data));
+r = await api("POST", "/api/instances", { moduleId: "snmp", instanceId: "EAP670", config: { host: "127.0.0.1", port: SPORT + 1, version: "3", user: "eap", authProtocol: "sha", authKey: "authpass1234", privProtocol: "aes", privKey: "privpass1234" }, pollIntervalSec: 30 });
+check("an SNMPv3 instance with the wrong settings is added", r.status === 201, JSON.stringify(r.data));
 r = await api("POST", "/api/instances", { moduleId: "tplink-router", instanceId: "AX12", config: { url: router.url, username: "admin", password: router.password }, pollIntervalSec: 30 });
 check("a TP-Link Archer router is added", r.status === 201, JSON.stringify(r.data));
 await until(async () => { const l = (await api("GET", "/api/instances")).data; const f = l.find((i) => i.instanceId === "Firewall"); return l.find((i) => i.instanceId === "LAN-Checks")?.data?.targets?.length === 3 && f?.data?.interfaces?.some((i) => i.inBps > 0); }, 40000);
@@ -170,6 +178,21 @@ await page.locator('.page-title button:has-text("Mbit/s")').click();
   check("adding a Network checks instance shows the form too", (await ap.locator('input[aria-label="Check name"]').count()) >= 1 && (await ap.locator(".add textarea").count()) === 0);
   await ap.keyboard.press("Escape");
   await ap.waitForTimeout(300);
+  // the SNMP settings test, on an instance that cannot connect
+  await ap.goto(`${base}/#/instances`);
+  await ap.waitForSelector("button.card-title");
+  { const closed = ap.locator('button.card-title[aria-expanded="false"]'); while ((await closed.count()) > 0) await closed.first().click(); }
+  await ap.waitForTimeout(1200);
+  if (process.env.DEBUG_UI) console.log("EAP card:", (await ap.locator("#inst-EAP670").innerText()).replace(/\s+/g, " ").slice(0, 1200), "| open:", await ap.locator("#inst-EAP670 button.card-title").getAttribute("aria-expanded"));
+  const eapBtn = ap.locator("#inst-EAP670").getByRole("button", { name: "Test the SNMP settings" });
+  await eapBtn.waitFor({ timeout: 20000 }).catch(() => undefined);
+  check("an SNMP instance that cannot connect offers a settings test to admins", (await eapBtn.count()) === 1, (await ap.locator("#inst-EAP670").innerText().catch(() => "no card")).replace(/\s+/g, " ").slice(0, 200));
+  await eapBtn.click();
+  const found = await until(async () => /Set the instance to exactly that/.test(await ap.locator("#inst-EAP670").innerText()), 60000);
+  const eapText = (await ap.locator("#inst-EAP670").innerText()).replace(/\s+/g, " ");
+  check("the test shows each combination and names the one that works", found && /authentication md5, no encryption/.test(eapText) && /answered/.test(eapText), eapText.slice(0, 400));
+  check("anonymous viewers do not get the test button", (await page.locator("#inst-EAP670").getByRole("button", { name: "Test the SNMP settings" }).count()) === 0);
+
   // editing happens in a popup over the page, and the name can be changed
   await ap.setViewportSize({ width: 1400, height: 520 });
   await ap.goto(`${base}/#/instances`);

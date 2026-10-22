@@ -145,5 +145,21 @@ check("the card says SNMP is not running when nothing listens", /Nothing is list
 check("a wrong community is explained as such", /community is wrong/.test(err ?? ""), err);
 await noSnmp.dispose?.();
 
+// ---- the SNMP settings test (an EAP-style v3 device: md5, no encryption) ----
+agent.getAuthorizer().addUser({ name: "eap", level: snmp.SecurityLevel.authNoPriv, authProtocol: snmp.AuthProtocols.md5, authKey: "authpass1234" });
+const v3cfg = sc2.parse({ host: "127.0.0.1", port: SPORT, version: "3", user: "eap", authProtocol: "sha", authKey: "authpass1234", privProtocol: "aes", privKey: "privpass1234" });
+const probeAction = (await sn.default.create(v3cfg, { log })).actions.find((a) => a.id === "probe");
+check("the probe is an admin-only action", probeAction && probeAction.minRole === "admin");
+const pr = await sn.probeSettings(v3cfg);
+check("the test finds the combination the device accepts (md5, no encryption) although Lumina was set to sha + aes", pr.working === "authentication md5, no encryption" && /exactly that/.test(pr.hint), pr.working);
+check("and says plainly what did not work", pr.results.length === 6 && pr.results.filter((x) => !x.ok).length === 5 && pr.results.every((x) => x.message.length > 0));
+const des = pr.results.find((x) => /des/.test(x.setting) && /md5/.test(x.setting));
+check("DES is either tried or explained (Node needs --openssl-legacy-provider for it)", des.ok || /DES encryption is not available/.test(des.message) || /no answer/.test(des.message), des.message);
+const wrong = await sn.probeSettings({ ...v3cfg, authKey: "definitely-wrong-key" });
+check("with wrong keys nothing is accepted and the hint says what to check", wrong.working === null && /user name, the authentication key/.test(wrong.hint), wrong.hint);
+check("a version 2c probe tries the community as entered", (await sn.probeSettings(sc2.parse({ host: "127.0.0.1", port: SPORT, community: "lab" }))).working === "version 2c with this community");
+check("the DES problem is explained for people", /Choose AES/.test(sn.explainCrypto("error:0308010C:digital envelope routines::unsupported")) && sn.explainCrypto("something else") === "something else");
+
+
 tcp.close(); web.close();
 process.exit(ok ? 0 : 1);

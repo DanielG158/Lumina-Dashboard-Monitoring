@@ -136,7 +136,8 @@ Works with anything that speaks SNMP: pfSense, OPNsense, OpenWrt, managed switch
    - **OpenWrt:** `opkg update && opkg install snmpd`, set the community in `/etc/config/snmpd` (or the LuCI page), then `/etc/init.d/snmpd restart`.
    Allow only the Lumina machine's address to ask. Use **SNMP v3** (user, authentication and encryption keys) where the device offers it, because v2c sends its community in clear text.
 2. In Lumina: **Add → Router / switch (SNMP)**. Address, version, and the community (v2c) or the v3 user and keys.
-3. Under *Interfaces to alert on*, list the links that matter, such as `igb0, wan`. They raise a critical alert when the link goes down. Unused down ports are hidden.
+3. **If it will not connect, press "Test the SNMP settings"** on the instance's card (admins). Lumina tries the usual authentication and encryption combinations with the user and keys you entered, and tells you which one the device accepts, so you can set the instance to exactly that. A device that ignores wrong keys silently shows as "no answer"; one that answers with *authorizationError* accepted the login but hides data from that user.
+4. Under *Interfaces to alert on*, list the links that matter, such as `igb0, wan`. They raise a critical alert when the link goes down. Unused down ports are hidden.
 
 ### TP-Link Omada (routers, switches and access points)
 

@@ -113,6 +113,53 @@ export async function readIfTable(table: (oid: string, columns: number[]) => Pro
   throw new Error(`${host}:${port} accepted the SNMP login but refuses to show its interface list (SNMP error "authorizationError"). The device's own access settings hide that part of its data. Allow the interfaces part (1.3.6.1.2.1.2 and 1.3.6.1.2.1.31) for this ${version === "3" ? "SNMPv3 user" : "community"}, or use the read-only login the device offers. If it cannot show interfaces at all, monitor it with Network checks (ping and ports) instead.`);
 }
 
+/** Node 17+ ships OpenSSL 3, which has single DES (SNMPv3 "des" privacy) switched off unless started with --openssl-legacy-provider. */
+export function explainCrypto(message: string): string {
+  return /digital envelope routines|unsupported/i.test(message) ? "DES encryption is not available in this Lumina's runtime. Choose AES on the device, or start Lumina with NODE_OPTIONS=--openssl-legacy-provider (the installer does this)." : message;
+}
+
+export interface ProbeResult { setting: string; ok: boolean; message: string }
+
+/**
+ * Tries the settings people most often mix up, one by one, with the user name and keys that were entered, and says which ones the device accepts.
+ * Version 3: authentication md5 or sha, and no encryption, des or aes. Version 2c: the community as entered.
+ */
+export async function probeSettings(config: Config): Promise<{ results: ProbeResult[]; working: string | null; hint: string }> {
+  const results: ProbeResult[] = [];
+  const ask = (make: () => Obj) => new Promise<{ ok: boolean; message: string }>((resolve) => {
+    let s: Obj;
+    try { s = make(); } catch (e) { return resolve({ ok: false, message: e instanceof Error ? e.message : String(e) }); }
+    s.on("error", () => undefined);
+    const done = (r: { ok: boolean; message: string }) => { try { s.close(); } catch { /* closed */ } resolve(r); };
+    s.get([OID.sysName, OID.sysDescr], (e: Error | null, vbs: Obj[]) => {
+      if (e) return done({ ok: false, message: /timed out|timeout/i.test(e.message) ? "no answer (wrong keys are silently ignored by many devices, or the protocol does not match)" : explainCrypto(e.message) });
+      const first = vbs.find((v) => !snmp.isVarbindError(v));
+      done({ ok: true, message: first ? `answered: ${text(first.value)?.slice(0, 60)}` : "answered" });
+    });
+  });
+  const base = { port: config.port, timeout: 3000, retries: 0 };
+  if (config.version === "3") {
+    for (const auth of ["md5", "sha"] as const) {
+      for (const priv of ["none", "des", "aes"] as const) {
+        const level = priv === "none" ? snmp.SecurityLevel.authNoPriv : snmp.SecurityLevel.authPriv;
+        const r = await ask(() => snmp.createV3Session(config.host, { name: config.user, level, authProtocol: snmp.AuthProtocols[auth], authKey: config.authKey, ...(priv === "none" ? {} : { privProtocol: snmp.PrivProtocols[priv], privKey: config.privKey ?? config.authKey }) }, { ...base, version: snmp.Version3 }));
+        results.push({ setting: `authentication ${auth}, ${priv === "none" ? "no encryption" : `encryption ${priv}`}`, ...r });
+      }
+    }
+  } else {
+    const r = await ask(() => snmp.createSession(config.host, config.community, { ...base, version: snmp.Version2c }));
+    results.push({ setting: "version 2c with this community", ...r });
+  }
+  const working = results.find((r) => r.ok)?.setting ?? null;
+  const denied = results.some((r) => /authorizationerror/i.test(r.message));
+  const hint = working
+    ? `The device answers with: ${working}. Set the instance to exactly that (Edit).`
+    : denied
+      ? "The device recognises the login but its access rules refuse the request (authorizationError). Check that this user may read, and that its security level matches the device's SNMP setting."
+      : "No combination was accepted. Check the user name, the authentication key and the encryption key (each 8 characters or more), that SNMP is switched on at the device, and that this Lumina's address is allowed.";
+  return { results, working, hint };
+}
+
 const text = (v: unknown): string | null => (v === undefined || v === null ? null : Buffer.isBuffer(v) ? v.toString("utf8").replace(/\0+$/, "") : String(v));
 /** Counters come as numbers (32 bit) or 8-byte buffers (64 bit). */
 export function counter(v: unknown): bigint | null {
@@ -190,7 +237,7 @@ export default defineModule<Config>({
         } catch (e) {
           healthy = false;
           const m = e instanceof Error ? e.message : String(e);
-          throw new Error(/timeout|timed out/i.test(m) ? explainNoAnswer(await probeUdpPort(config.host, config.port), config.host, config.port, config.version) : m);
+          throw new Error(/timeout|timed out/i.test(m) ? explainNoAnswer(await probeUdpPort(config.host, config.port), config.host, config.port, config.version) : explainCrypto(m));
         }
         let ifT: Obj, ifX: Obj;
         try {
@@ -241,6 +288,7 @@ export default defineModule<Config>({
         const total = num(val(extra[1])), avail = num(val(extra[2]));
         const load = val(extra[0]);
         return {
+          snmpVersion: config.version,
           sysName: text(val(sys[2])),
           sysDescr: text(val(sys[0]))?.split("\n")[0].slice(0, 200) ?? null,
           uptimeS: typeof val(sys[1]) === "number" ? Math.round((val(sys[1]) as number) / 100) : null,
@@ -278,7 +326,16 @@ export default defineModule<Config>({
         if (d.memUsedPct !== null) m.mem = d.memUsedPct;
         return m;
       },
-      actions: [],
+      actions: [
+        {
+          id: "probe",
+          label: "Test the SNMP settings",
+          minRole: "admin",
+          async run() {
+            return probeSettings(config);
+          },
+        },
+      ],
       async dispose() {
         try { session.close(); } catch { /* already closed */ }
       },

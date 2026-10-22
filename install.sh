@@ -120,6 +120,8 @@ User=lumina
 Group=lumina
 WorkingDirectory=$APP_DIR
 Environment=NODE_ENV=production
+# SNMPv3 devices often use DES encryption, which Node 17+ only offers with this switch (it only adds algorithms).
+Environment=NODE_OPTIONS=--openssl-legacy-provider
 Environment=LUMINA_DATA=$DATA_DIR
 ExecStart=$(command -v node) packages/core/dist/index.js
 Restart=always
