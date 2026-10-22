@@ -16,6 +16,8 @@ export interface HttpResult {
   status: number;
   statusText: string;
   body: string;
+  /** response headers (lower-case names), for the few devices that hand out a session cookie */
+  headers: Record<string, string | string[] | undefined>;
 }
 
 export class HttpError extends Error {
@@ -62,6 +64,7 @@ export function httpRequestRaw(url: string, opts: HttpOptions = {}): Promise<Htt
           status: res.statusCode ?? 0,
           statusText: res.statusMessage ?? "",
           body: Buffer.concat(chunks).toString("utf8"),
+          headers: res.headers,
         }),
       );
     };

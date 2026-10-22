@@ -50,6 +50,10 @@ export function summarize(i: InstanceUpdate): string {
       const sm = d.summary as Obj | undefined;
       return `${sm?.up ?? 0}/${(d.targets ?? []).length} checks up${sm?.avgMs != null ? ` · ${sm.avgMs} ms` : ""}${sm?.avgLossPct ? ` · ${sm.avgLossPct}% loss` : ""}${d.speed?.downMbps != null ? ` · ↓ ${mbps(d.speed.downMbps)}` : ""}`;
     }
+    case "omada": {
+      const sm = d.summary as Obj | undefined;
+      return `${sm?.online ?? 0}/${sm?.total ?? 0} devices online${sm?.clients ? ` · ${sm.clients} Wi-Fi clients` : ""}${sm?.upgrades ? ` · ${sm.upgrades} update${sm.upgrades === 1 ? "" : "s"}` : ""}`;
+    }
     case "snmp": {
       const ifs = ((d.interfaces ?? []) as Obj[]).filter((x) => x.up);
       const inn = ifs.reduce((a, x) => a + (x.inBps ?? 0), 0), out = ifs.reduce((a, x) => a + (x.outBps ?? 0), 0);

@@ -163,6 +163,14 @@ export function Overview({ kiosk = false, onExit }: { kiosk?: boolean; onExit?: 
       });
     }
   }
+  {
+    const om = L.instances.filter((i) => i.moduleId === "omada" && i.data);
+    if (om.length) {
+      const sums = om.map((i) => (i.data as { summary: { total: number; online: number; clients: number } }).summary);
+      const total = sums.reduce((a, x) => a + x.total, 0), online = sums.reduce((a, x) => a + x.online, 0), clients = sums.reduce((a, x) => a + x.clients, 0);
+      kpis.push({ key: "wifi", icon: "omada", label: "Wi-Fi and network", value: `${online}/${total}`, sub: `${clients} client${clients === 1 ? "" : "s"} on Wi-Fi`, level: online < total ? "critical" : "ok", go: "instances", spark: { instanceId: om[0].instanceId, metric: "clients:total", unit: "" } });
+    }
+  }
   if (fleet.tunnels) kpis.push({ key: "tun", icon: "cloudflare", label: "Tunnels healthy", value: `${fleet.tunnels.healthy}/${fleet.tunnels.total}`, level: fleet.tunnels.healthy < fleet.tunnels.total ? "critical" : "ok", go: "instances" });
   if (fleet.worstStorage) {
     const s = fleet.worstStorage;

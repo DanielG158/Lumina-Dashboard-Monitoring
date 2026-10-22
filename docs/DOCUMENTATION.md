@@ -183,6 +183,10 @@ Switching SNMP on (menu names vary by version):
 - **OpenWrt:** `opkg update && opkg install snmpd`, then set the community in `/etc/config/snmpd` (or the LuCI SNMP page) and restart `snmpd`.
 - **Unmanaged switches** have no SNMP. Use ping checks for them, and read the router port they connect to.
 
+## 4f. TP-Link Omada
+
+The `omada` module logs in to an Omada controller's web interface (the same login the browser uses: a session cookie plus a CSRF token) with a Viewer account and reads the sites the account can see, and each site's device list. It was written against the behaviour of controller versions 5.1 to 6.x as documented by the open-source `tplink-omada-client` project, and tested here against a fake controller that behaves that way, not yet against a real one. It re-logs in by itself when the controller drops the session. Not covered yet: gateway WAN throughput, per-port switch status and the controller's own alert list; the Omada OpenAPI (client-credentials) login is not used yet.
+
 ## 5. History (charts)
 
 One averaged sample per minute per metric is stored in SQLite and kept for 14 days (adjustable). Overview tiles show a trend line;

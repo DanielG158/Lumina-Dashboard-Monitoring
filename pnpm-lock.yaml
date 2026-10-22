@@ -193,6 +193,9 @@ importers:
       '@lumina/module-netcheck':
         specifier: workspace:*
         version: link:../modules/netcheck
+      '@lumina/module-omada':
+        specifier: workspace:*
+        version: link:../modules/omada
       '@lumina/module-proxmox':
         specifier: workspace:*
         version: link:../modules/proxmox
@@ -299,6 +302,22 @@ importers:
         version: 5.9.3
 
   packages/modules/netcheck:
+    dependencies:
+      '@lumina/sdk':
+        specifier: workspace:*
+        version: link:../../sdk
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.3
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
+  packages/modules/omada:
     dependencies:
       '@lumina/sdk':
         specifier: workspace:*

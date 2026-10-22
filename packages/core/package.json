@@ -19,6 +19,7 @@
     "@lumina/module-ilo4": "workspace:*",
     "@lumina/module-lumina-remote": "workspace:*",
     "@lumina/module-netcheck": "workspace:*",
+    "@lumina/module-omada": "workspace:*",
     "@lumina/module-snmp": "workspace:*",
     "@lumina/module-proxmox": "workspace:*",
     "@lumina/module-uptime-kuma": "workspace:*",

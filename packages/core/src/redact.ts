@@ -38,6 +38,8 @@ function redactData(moduleId: string, d: Obj): Obj {
       };
     case "netcheck":
       return { ...d, targets: (d.targets ?? []).map((t: Obj) => ({ ...t, target: "" })) };
+    case "omada":
+      return { ...d, controller: d.controller && { ...d.controller, user: null }, sites: (d.sites ?? []).map((s: Obj) => ({ ...s, devices: (s.devices ?? []).map((x: Obj) => ({ ...x, mac: "", ip: "" })) })) };
     case "snmp":
       return { ...d, sysDescr: null, interfaces: (d.interfaces ?? []).map((i: Obj) => ({ ...i, alias: null })) };
     case "uptime-kuma":

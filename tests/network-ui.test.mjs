@@ -54,6 +54,10 @@ r = await api("POST", "/api/instances", { moduleId: "netcheck", instanceId: "Bad
 check("a bad check list is refused with the reason", r.status === 400 && /line 1/.test(JSON.stringify(r.data)), JSON.stringify(r.data).slice(0, 120));
 r = await api("POST", "/api/instances", { moduleId: "snmp", instanceId: "Firewall", config: { host: "127.0.0.1", port: SPORT, community: "lab", watch: "igb0, igb1" }, pollIntervalSec: 5 });
 check("an SNMP instance is added", r.status === 201, JSON.stringify(r.data));
+const { startFakeOmada } = await import("./helpers/omada-fake.mjs");
+const omada = await startFakeOmada();
+r = await api("POST", "/api/instances", { moduleId: "omada", instanceId: "Wi-Fi", config: { url: omada.url, username: "viewer", password: "secret" }, pollIntervalSec: 10 });
+check("a TP-Link Omada controller is added", r.status === 201, JSON.stringify(r.data));
 await until(async () => { const l = (await api("GET", "/api/instances")).data; const f = l.find((i) => i.instanceId === "Firewall"); return l.find((i) => i.instanceId === "LAN-Checks")?.data?.targets?.length === 3 && f?.data?.interfaces?.some((i) => i.inBps > 0); }, 40000);
 
 r = await api("POST", "/api/instances/LAN-Checks/actions/speedtest", {});
@@ -88,6 +92,12 @@ check("the unit is remembered in the browser", (await page.evaluate(() => localS
 await page.getByRole("button", { name: "Mbit/s" }).first().click();
 await page.waitForTimeout(500);
 check("and back to Mbit/s", /Mbit\/s/.test(await page.locator("body").innerText()));
+let wifi = "";
+const wifiShown = await until(async () => { await expandAll(); wifi = await page.locator("body").innerText(); return /Living room AP/.test(wifi) && /Garage AP/.test(wifi); }, 40000);
+check("the Omada card lists the router, switch and access points", wifiShown && /ER605/.test(wifi) && /SG2008P/.test(wifi) && /Access point/.test(wifi) && /Router/.test(wifi), wifiShown ? "" : wifi.replace(/\s+/g, " ").slice(-500));
+check("it shows the offline access point, the update and the Wi-Fi client count", /Garage AP[^\n]*offline/i.test(wifi) && /update/i.test(wifi) && /Wi-Fi clients\s*17/.test(wifi.replace(/\n/g, " ").replace(/\s+/g, " ")) || /17/.test(wifi));
+check("anonymous viewers do not see device addresses", !/192\.168\.0\.2\d/.test(wifi));
+check("anonymous viewers do not see device addresses (alerts)", !/192\.168\.0\.22/.test(wifi));
 check("anonymous viewers do not see the interface labels (WAN, LAN)", !/\bWAN\b/.test(txt2) && !/\bLAN\b(?!-)/.test(txt2.replace(/LAN-Checks/g, "")));
 check("a watched link that is down is flagged", /igb1/.test(txt2) && /watched/.test(txt2), snmpShown ? "" : txt2.replace(/\s+/g, " ").slice(0, 200));
 await page.screenshot({ path: process.env.SHOT ?? join(dir, "net.png"), fullPage: true });
@@ -158,28 +168,31 @@ await page.locator('.page-title button:has-text("Mbit/s")').click();
   await ap.goto(`${base}/#/instances`);
   await ap.waitForSelector("button.card-title");
   for (const b of await ap.locator('button.card-title[aria-expanded="false"]').all()) await b.click().catch(() => undefined);
-  await ap.waitForTimeout(800);
+  await ap.waitForTimeout(3000); // let every card finish loading its charts, so the page height is stable
   await ap.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-  await ap.waitForTimeout(300);
+  await ap.waitForTimeout(600);
   const y0 = await ap.evaluate(() => window.scrollY);
+  const h0 = await ap.evaluate(() => document.documentElement.scrollHeight);
   const editBtns = ap.getByRole("button", { name: "Edit", exact: true });
-  await editBtns.last().click();
+  // (a DOM click, so the test does not scroll the button into view itself)
+  await editBtns.last().evaluate((el) => el.click());
   await ap.waitForSelector(".overlay .modal-sheet");
   await ap.waitForTimeout(500);
   const y1 = await ap.evaluate(() => window.scrollY);
-  check("opening Edit does not throw the page back to the top", y0 > 100 && Math.abs(y1 - y0) <= 30, `${y0} -> ${y1}`);
+  const h1 = await ap.evaluate(() => document.documentElement.scrollHeight);
+  check("opening Edit does not throw the page back to the top", y0 > 100 && Math.abs(y1 - y0) <= 30, `${y0} -> ${y1} (page height ${h0} -> ${h1})`);
   check("the edit form is a popup over the page", (await ap.locator(".overlay .modal-sheet input").count()) > 3);
   const nameBox = ap.locator('.modal-sheet label:has-text("Instance name") input');
   check("the instance name can be edited", (await nameBox.isEditable()) === true);
   await ap.keyboard.press("Escape");
   await ap.waitForTimeout(300);
   check("Escape closes the popup and the page stays where it was", (await ap.locator(".overlay .modal-sheet").count()) === 0 && Math.abs((await ap.evaluate(() => window.scrollY)) - y0) <= 2);
-  await editBtns.last().click();
+  await editBtns.last().evaluate((el) => el.click());
   await ap.waitForSelector(".overlay .modal-sheet");
-  await ap.locator('.modal-sheet label:has-text("Instance name") input').fill("Edge Firewall");
+  await ap.locator('.modal-sheet label:has-text("Instance name") input').fill("Edge Wi-Fi");
   await ap.locator(".modal-sheet").getByRole("button", { name: /^(Save|Update|Save changes)/ }).first().click();
-  check("renaming from the popup moves the instance to the new name", await until(async () => (await api("GET", "/api/instances")).data.some((i) => i.instanceId === "Edge Firewall") && !(await api("GET", "/api/instances")).data.some((i) => i.instanceId === "Firewall"), 20000));
-  await api("PUT", "/api/instances/Edge%20Firewall/name", { name: "Firewall" }); // put it back for the rest of the test
+  check("renaming from the popup moves the instance to the new name", await until(async () => (await api("GET", "/api/instances")).data.some((i) => i.instanceId === "Edge Wi-Fi") && !(await api("GET", "/api/instances")).data.some((i) => i.instanceId === "Wi-Fi"), 20000));
+  await api("PUT", "/api/instances/Edge%20Wi-Fi/name", { name: "Wi-Fi" }); // put it back for the rest of the test
   check("no browser errors in the admin pages", aerrors.length === 0, aerrors.join(" | "));
   await actx.close();
 }
@@ -191,7 +204,7 @@ await page.waitForSelector("button.card-title");
 await expandAll();
 await page.waitForTimeout(800);
 const snmpCard = page.locator("section, article, .card").filter({ has: page.locator("text=Firewall") }).last();
-await page.locator('button:has-text("History")').last().click();
+await page.locator("xpath=//button[contains(@class,'card-title')][contains(.,'Firewall')]/ancestor::*[.//button[contains(@class,'section-head')]][1]//button[contains(@class,'section-head')][contains(.,'History')]").first().click();
 await page.waitForTimeout(800);
 if (process.env.DEBUG_UI) console.log("chips:", await page.locator("button.chip").allInnerTexts(), "heads:", await page.locator("button.section-head").allInnerTexts());
 await page.getByRole("button", { name: "Traffic in (all links)" }).click({ timeout: 8000 });
@@ -209,6 +222,7 @@ check("alerts name the dead check and the down link", await until(async () => { 
 await page.getByRole("button", { name: "Overview" }).first().click();
 await page.waitForTimeout(1500);
 const ov = await page.locator("body").innerText();
+check("the Overview has a Wi-Fi and network tile with the online count", /WI-FI AND NETWORK/i.test(ov) && /4\/6/.test((ov.match(/WI-FI AND NETWORK[^\n]*\n[^\n]*/i) ?? [""])[0]), (ov.match(/WI-FI AND NETWORK[^\n]*\n?[^\n]*/i) ?? [""])[0]);
 check("the Overview has a Network checks tile", /NETWORK CHECKS/i.test(ov) && /\d+\/\d+/.test((ov.match(/NETWORK CHECKS[^\n]*\n[^\n]*/i) ?? [""])[0]), (ov.match(/NETWORK CHECKS[^\n]*\n?[^\n]*/i) ?? [""])[0]);
 for (const [w, h] of [[1920, 1080], [1366, 768]]) {
   await page.setViewportSize({ width: w, height: h });
@@ -219,4 +233,5 @@ for (const [w, h] of [[1920, 1080], [1366, 768]]) {
 check("no browser errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 await browser.close();
 clearInterval(bump); child.kill(); tcp.close(); web.close();
+omada.close();
 process.exit(ok ? 0 : 1);

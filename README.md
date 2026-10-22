@@ -138,6 +138,18 @@ Works with anything that speaks SNMP: pfSense, OPNsense, OpenWrt, managed switch
 2. In Lumina: **Add → Router / switch (SNMP)**. Address, version, and the community (v2c) or the v3 user and keys.
 3. Under *Interfaces to alert on*, list the links that matter, such as `igb0, wan`. They raise a critical alert when the link goes down. Unused down ports are hidden.
 
+### TP-Link Omada (routers, switches and access points)
+
+Lumina reads an **Omada controller**: the software controller or the OC200 / OC300 hardware controllers, version 5.1 or newer. It shows every site's routers (gateways), switches and access points with online status, Wi-Fi clients per access point, CPU and memory, uptime and firmware updates. It is read-only.
+
+1. In the Omada controller, create a **separate account for Lumina with the Viewer role** (Settings, Admin; the menu names differ between versions), limited to the sites you want shown.
+2. In Lumina: **Add → TP-Link Omada Controller**. Address is what you open in the browser (for example `https://192.168.1.2:8043`; hardware controllers use 443), then the username and password. *Site name* is optional (empty shows every site the account can see).
+3. The controller's certificate is usually self-signed: leave **Verify TLS** off and press **Detect** to pin it.
+
+Lumina raises a critical alert when a device goes offline, a warning when one stops answering the controller or is isolated, and informational notes for a device waiting to be adopted or a firmware update. Devices that are not managed by a controller are covered below.
+
+**TP-Link devices without a controller.** Home routers and mesh systems (Archer, Deco) have no monitoring interface, so Lumina cannot read their status, and it does not try to log in to their web pages. Use **Network checks** to watch them: a *Ping* check and a *TCP port* check on their web port (80 or 443) show whether they are up and how fast they answer. Business models in standalone mode (Omada gateways and access points, JetStream switches) often support **SNMP**; if yours does, switch it on and add it as **Router / switch (SNMP)** for link status and traffic.
+
 ### Another Lumina (a second site)
 
 To see an office or a second home from this one without a VPN session:
@@ -217,7 +229,7 @@ Lumina is a TypeScript monorepo: `packages/core` (Fastify, Socket.io, SQLite), `
 
 ## Status
 
-Lumina is young, and was written for and tested on one homelab. Proxmox, iLO 4, apcupsd and Uptime Kuma have run daily against real hardware. These have only been tested against automated fakes or briefly: **iLO 5 (Gen10), the Network checks and SNMP modules, watching another Lumina, the Cloudflare module and the Docker image**, and the scheduled actions and power buttons have never been run against real devices. Please read [the security notes](docs/security-assessment.md) before exposing it beyond your home network, and open an issue if something does not work.
+Lumina is young, and was written for and tested on one homelab. Proxmox, iLO 4, apcupsd and Uptime Kuma have run daily against real hardware. These have only been tested against automated fakes or briefly: **iLO 5 (Gen10), the Network checks, SNMP and TP-Link Omada modules, watching another Lumina, the Cloudflare module and the Docker image**, and the scheduled actions and power buttons have never been run against real devices. Please read [the security notes](docs/security-assessment.md) before exposing it beyond your home network, and open an issue if something does not work.
 
 Not built yet: NUT support, email notifications, LDAP or two-factor sign-in, a mobile app, auto-update, device discovery.
 

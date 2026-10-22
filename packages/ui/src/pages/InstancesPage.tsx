@@ -7,6 +7,7 @@ import { IloCard } from "../components/IloCard";
 import { KumaCard } from "../components/KumaCard";
 import { ProxmoxCard } from "../components/ProxmoxCard";
 import { NetCheckCard } from "../components/NetCheckCard";
+import { OmadaCard } from "../components/OmadaCard";
 import { SnmpCard } from "../components/SnmpCard";
 import { RemoteCard } from "../components/RemoteCard";
 import { UpsCard } from "../components/UpsCard";
@@ -21,6 +22,7 @@ const CARDS: Record<string, (props: CardProps) => ReactElement> = {
   lumina: RemoteCard,
   netcheck: NetCheckCard,
   snmp: SnmpCard,
+  omada: OmadaCard,
 };
 
 interface Props {
