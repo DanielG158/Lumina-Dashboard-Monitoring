@@ -138,6 +138,20 @@ The Energy tab turns the power readings Lumina already records into kWh and mone
 
 Periods: today, yesterday, 7 days, 30 days, this billing cycle (with a month-end projection) and last cycle. The monthly fee and tax appear only in billing-cycle views.
 
+## 4d. Watching another Lumina (two sites)
+
+If you run Lumina in more than one place (say, home and an office), one of them can show the other, so you do not need a VPN session just to see whether things are healthy.
+
+1. On the **remote** Lumina (the office), open **Settings → Access tokens → New token**, name it (for example "Home Lumina") and copy the token. It is shown once.
+2. On **this** Lumina (home), **Instances → Add → Another Lumina**. Enter the office address (for example `https://192.168.0.171`), a name for its alerts (for example "Office"), and the token. Use **Detect** to pin its certificate if it uses a self-signed one.
+3. The card lists the office's devices with their status and the office's active alerts. Those alerts are also raised here, with the name in front ("Office: Drive 1I:3:4 is Critical"), so your notification channels cover both sites. If the office cannot be reached, you get an "unreachable" alert.
+
+**What a token allows:** reading what an anonymous visitor could see (device status and numbers, alerts, history), even when public viewing is off. It cannot change anything and cannot read users, logs, settings, serial numbers or addresses. Revoke it at any time; the other Lumina stops working immediately. Tokens are stored only as a hash.
+
+**Network:** this Lumina must be able to reach the other one. A site-to-site VPN, a Cloudflare Tunnel (put the tunnel's address in step 2), or a reverse proxy with HTTPS all work. If you expose it to the internet, turn off public viewing on that Lumina and rely on the token. Do not forward a plain-HTTP port to the internet.
+
+Two Luminas can watch each other: devices and alerts that came from another Lumina are never passed on again, so alerts do not bounce back and forth.
+
 ## 5. History (charts)
 
 One averaged sample per minute per metric is stored in SQLite and kept for 14 days (adjustable). Overview tiles show a trend line;

@@ -302,6 +302,9 @@ export const api = {
   testChannel: (id: number) => req<{ ok: boolean; error?: string }>(`/channels/${id}/test`, { method: "POST" }),
 
   users: () => req<UserInfo[]>("/users"),
+  tokens: () => req<{ id: number; name: string; createdAt: number; lastUsed: number | null; createdBy: string | null }[]>("/tokens"),
+  createToken: (name: string) => req<{ id: number; name: string; token: string }>("/tokens", json("POST", { name })),
+  deleteToken: (id: number) => req(`/tokens/${id}`, { method: "DELETE" }),
   addUser: (username: string, password: string, role: string) => req("/users", json("POST", { username, password, role })),
   updateUser: (id: number, patch: { role?: string; password?: string }) => req(`/users/${id}`, json("PUT", patch)),
   deleteUser: (id: number) => req(`/users/${id}`, { method: "DELETE" }),

@@ -40,6 +40,11 @@ export function summarize(i: InstanceUpdate): string {
       const t = (d.tunnels ?? []) as Obj[];
       return `${t.filter((x) => x.status === "healthy").length}/${t.length} tunnels healthy`;
     }
+    case "lumina": {
+      const dev = (d.devices ?? []) as Obj[];
+      const a = (d.alerts ?? []) as Obj[];
+      return `${dev.filter((x) => x.level === "ok").length}/${dev.length} devices online · ${a.length ? `${a.length} alert${a.length === 1 ? "" : "s"}` : "no alerts"}`;
+    }
     default:
       return i.status;
   }

@@ -3,7 +3,7 @@ import { api, type AppSettings, type Channel, type ChannelType, type ServerInfo,
 import { readJsonFile, waitForServer } from "../components/AuthDialogs";
 import { useLumina } from "../context";
 
-type Section = "general" | "server" | "notifications" | "users" | "backup" | "account";
+type Section = "general" | "server" | "notifications" | "users" | "tokens" | "backup" | "account";
 const err = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 function Field({ label, help, children }: { label: string; help?: string; children: React.ReactNode }) {
@@ -214,6 +214,56 @@ function Notifications() {
   );
 }
 
+function Tokens() {
+  const { notify } = useLumina();
+  const [list, setList] = useState<Awaited<ReturnType<typeof api.tokens>> | null>(null);
+  const [name, setName] = useState("");
+  const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null);
+  const load = () => api.tokens().then(setList).catch((e) => notify(err(e), true));
+  useEffect(() => { void load(); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  async function create(e: FormEvent) {
+    e.preventDefault();
+    try { const t = await api.createToken(name.trim()); setFresh({ name: t.name, token: t.token }); setName(""); await load(); } catch (x) { notify(err(x), true); }
+  }
+  return (
+    <div className="stack" style={{ maxWidth: 760 }}>
+      <div className="hint">An access token lets <b>another Lumina</b> (say, one at a second site) read this dashboard's devices and alerts, even when public viewing is off. It is read-only and sees exactly what an anonymous visitor sees: no logs, serial numbers or addresses, and it cannot change anything. On the other Lumina, add an instance of type <b>Another Lumina</b> and paste the token there. Make one token per Lumina so you can revoke them separately.</div>
+      {fresh && (
+        <div className="panel stack" style={{ borderColor: "var(--accent)" }}>
+          <b>Token for "{fresh.name}"</b>
+          <code style={{ wordBreak: "break-all", userSelect: "all" }}>{fresh.token}</code>
+          <div className="hint">Copy it now. It is shown only once; Lumina keeps only a fingerprint of it.</div>
+          <div className="row"><button className="btn sm" onClick={() => { void navigator.clipboard?.writeText(fresh.token).then(() => notify("Copied"), () => notify("Select the token and copy it by hand", true)); }}>Copy</button><button className="btn sm" onClick={() => setFresh(null)}>I have saved it</button></div>
+        </div>
+      )}
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>Created</th><th>Last used</th><th className="num">Actions</th></tr></thead>
+          <tbody>
+            {list?.map((t) => (
+              <tr key={t.id}>
+                <td>{t.name}</td>
+                <td className="sub">{new Date(t.createdAt * 1000).toLocaleDateString()}{t.createdBy ? ` · ${t.createdBy}` : ""}</td>
+                <td className="sub">{t.lastUsed ? new Date(t.lastUsed * 1000).toLocaleString() : "never"}</td>
+                <td><div className="actions"><button className="btn sm danger" onClick={async () => { if (confirm(`Revoke "${t.name}"? Whatever uses it stops working immediately.`)) { try { await api.deleteToken(t.id); await load(); } catch (x) { notify(err(x), true); } } }}>Revoke</button></div></td>
+              </tr>
+            ))}
+            {list?.length === 0 && <tr><td colSpan={4} className="sub">No tokens yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <form className="panel stack" onSubmit={create}>
+        <h3 style={{ margin: 0 }}>New token</h3>
+        <div className="row" style={{ alignItems: "flex-end" }}>
+          <Field label="Name" help="Who or what will use it, for example Home Lumina."><input className="field" required maxLength={60} value={name} onChange={(e) => setName(e.target.value)} /></Field>
+          <button className="btn primary">Create</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function Users() {
   const { notify, auth } = useLumina();
   const [users, setUsers] = useState<UserInfo[] | null>(null);
@@ -340,7 +390,7 @@ function Account() {
 export function SettingsPage() {
   const L = useLumina();
   const sections: [Section, string][] = L.can.admin
-    ? [["general", "General"], ["server", "Server & HTTPS"], ["notifications", "Notifications"], ["users", "Users"], ["backup", "Backup & restore"], ["account", "My account"]]
+    ? [["general", "General"], ["server", "Server & HTTPS"], ["notifications", "Notifications"], ["users", "Users"], ["tokens", "Access tokens"], ["backup", "Backup & restore"], ["account", "My account"]]
     : [["account", "My account"]];
   const [section, setSection] = useState<Section>(sections[0][0]);
   return (
@@ -354,6 +404,7 @@ export function SettingsPage() {
         {section === "server" && <Server />}
         {section === "notifications" && <Notifications />}
         {section === "users" && <Users />}
+        {section === "tokens" && <Tokens />}
         {section === "backup" && <Backup />}
         {section === "account" && <Account />}
       </section>

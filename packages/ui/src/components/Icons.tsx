@@ -25,6 +25,7 @@ const PATHS: Record<string, ReactNode> = {
   apcupsd: (<><rect x="2.5" y="7" width="16" height="10" rx="2" /><path d="M21.5 10.5v3" /><path d="m11 8-2.5 4.5h3L10 16" /></>),
   "uptime-kuma": <path d="M3 12h4l2.5-6 4 12 2.5-6H21" />,
   cloudflare: <path d="M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 9.5a4 4 0 0 1-.5 8.5H7Z" />,
+  lumina: (<><circle cx="12" cy="12" r="3.5" /><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1" /></>),
   bell: (<><path d="M6 9a6 6 0 1 1 12 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9Z" /><path d="M10 20a2 2 0 0 0 4 0" /></>),
   cpu: (<><rect x="6" y="6" width="12" height="12" rx="2" /><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3" /></>),
   bolt: <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" />,

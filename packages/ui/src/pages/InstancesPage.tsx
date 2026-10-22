@@ -5,6 +5,7 @@ import { CloudflareCard } from "../components/CloudflareCard";
 import { IloCard } from "../components/IloCard";
 import { KumaCard } from "../components/KumaCard";
 import { ProxmoxCard } from "../components/ProxmoxCard";
+import { RemoteCard } from "../components/RemoteCard";
 import { UpsCard } from "../components/UpsCard";
 import { useLumina } from "../context";
 
@@ -14,6 +15,7 @@ const CARDS: Record<string, (props: CardProps) => ReactElement> = {
   ilo4: IloCard,
   cloudflare: CloudflareCard,
   "uptime-kuma": KumaCard,
+  lumina: RemoteCard,
 };
 
 interface Props {

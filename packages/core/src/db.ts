@@ -175,6 +175,15 @@ export function openDb(path: string) {
       last_message TEXT,
       created_by   TEXT
     );
+    -- Read-only access tokens for other Lumina servers (only a hash is kept).
+    CREATE TABLE IF NOT EXISTS api_tokens (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      name       TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      created_at INTEGER NOT NULL,
+      last_used  INTEGER,
+      created_by TEXT
+    );
     -- Average cores in use per guest per 30-minute slot (a row exists only while the guest was running).
     CREATE TABLE IF NOT EXISTS energy_guest_buckets (
       instance_id TEXT NOT NULL,
@@ -311,6 +320,14 @@ export function openDb(path: string) {
       setRole: (id: number, role: UserRow["role"]) => db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, id),
       touchLogin: (id: number) => db.prepare("UPDATE users SET last_login = ? WHERE id = ?").run(now(), id),
       delete: (id: number) => db.prepare("DELETE FROM users WHERE id = ?").run(id),
+    },
+
+    tokens: {
+      list: () => db.prepare("SELECT id, name, created_at AS createdAt, last_used AS lastUsed, created_by AS createdBy FROM api_tokens ORDER BY id").all() as { id: number; name: string; createdAt: number; lastUsed: number | null; createdBy: string | null }[],
+      create: (name: string, hash: string, by: string | null) => Number(db.prepare("INSERT INTO api_tokens (name, token_hash, created_at, created_by) VALUES (?, ?, ?, ?)").run(name, hash, now(), by).lastInsertRowid),
+      find: (hash: string) => db.prepare("SELECT id, name, last_used AS lastUsed FROM api_tokens WHERE token_hash = ?").get(hash) as { id: number; name: string; lastUsed: number | null } | undefined,
+      touch: (id: number) => db.prepare("UPDATE api_tokens SET last_used = ? WHERE id = ?").run(now(), id),
+      delete: (id: number) => db.prepare("DELETE FROM api_tokens WHERE id = ?").run(id).changes,
     },
 
     sessions: {

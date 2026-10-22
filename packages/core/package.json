@@ -17,6 +17,7 @@
     "@lumina/module-apcupsd": "workspace:*",
     "@lumina/module-cloudflare": "workspace:*",
     "@lumina/module-ilo4": "workspace:*",
+    "@lumina/module-lumina-remote": "workspace:*",
     "@lumina/module-proxmox": "workspace:*",
     "@lumina/module-uptime-kuma": "workspace:*",
     "@lumina/sdk": "workspace:*",

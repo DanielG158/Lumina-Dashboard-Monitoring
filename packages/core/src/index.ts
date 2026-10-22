@@ -4,13 +4,14 @@ import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import { Server as SocketServer } from "socket.io";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { X509Certificate, createPrivateKey } from "node:crypto";
+import { X509Certificate, createPrivateKey, randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { z } from "zod";
 import proxmox from "@lumina/module-proxmox";
 import apcupsd from "@lumina/module-apcupsd";
 import ilo4 from "@lumina/module-ilo4";
+import luminaRemote from "@lumina/module-lumina-remote";
 import cloudflare from "@lumina/module-cloudflare";
 import uptimeKuma from "@lumina/module-uptime-kuma";
 import { openDb } from "./db.js";
@@ -20,6 +21,7 @@ import { MetricsRecorder, RANGES } from "./metrics.js";
 import { CHANNEL_TYPES, createNotifier, deliver } from "./notify.js";
 import { loadTls, startHttpRedirect } from "./tls.js";
 import { redactState } from "./redact.js";
+import { sha256 } from "./crypto.js";
 import { Maintenance } from "./maintenance.js";
 import { Scheduler, nextRun } from "./scheduler.js";
 import { EnergySettingsSchema, MAX_CUSTOM_DAYS, RANGE_NAMES, computeEnergy, formatMoney, listSources, loadEnergySettings, rawKwhBetween, rollupEnergy } from "./energy.js";
@@ -85,7 +87,7 @@ const audit = (req: FastifyRequest, action: string, target: string | null = null
   store.audit.add(user ?? req.user?.username ?? null, action, target, detail, clientIp(req));
 
 const registry = new ModuleRegistry(io, app.log);
-for (const mod of [proxmox, apcupsd, ilo4, cloudflare, uptimeKuma]) registry.register(mod);
+for (const mod of [proxmox, apcupsd, ilo4, cloudflare, uptimeKuma, luminaRemote]) registry.register(mod);
 registry.redact = redactState;
 
 const notifier = createNotifier(store, app.log);
@@ -151,6 +153,15 @@ app.addHook("onRequest", async (req, reply) => {
     return;
   }
   if (req.method === "GET" && settings().publicView && ANONYMOUS_READS.some((re) => re.test(path))) return;
+  // Another Lumina reading this one: a token allows exactly what anonymous viewing allows, even when public viewing is off.
+  const bearer = /^Bearer (lum_[A-Za-z0-9_-]{20,100})$/.exec(String(req.headers.authorization ?? ""))?.[1];
+  if (bearer && req.method === "GET" && ANONYMOUS_READS.some((re) => re.test(path))) {
+    const t = store.tokens.find(sha256(bearer));
+    if (t) {
+      if (!t.lastUsed || Date.now() / 1000 - t.lastUsed > 60) store.tokens.touch(t.id);
+      return;
+    }
+  }
   return reply.code(401).send({ error: "Sign in to do this" });
 });
 
@@ -283,6 +294,22 @@ app.get("/api/instances/:id/metrics", async (req, reply) => {
 app.get("/api/instances/:id/metric-keys", async (req) => store.metrics.keys((req.params as { id: string }).id));
 
 // ---- alerts & notifications ------------------------------------------------------------------------------------
+
+// Access tokens: let another Lumina (or a script) read what an anonymous visitor can see, without public viewing being on.
+app.get("/api/tokens", { preHandler: admin }, async () => store.tokens.list());
+app.post("/api/tokens", { preHandler: admin }, async (req) => {
+  const { name } = z.object({ name: z.string().trim().min(1).max(60) }).parse(req.body);
+  const token = `lum_${randomBytes(24).toString("base64url")}`;
+  const id = store.tokens.create(name, sha256(token), req.user?.username ?? null);
+  audit(req, "token-created", name);
+  return { id, name, token };
+});
+app.delete("/api/tokens/:id", { preHandler: admin }, async (req, reply) => {
+  const { id } = z.object({ id: z.coerce.number().int() }).parse(req.params);
+  if (!store.tokens.delete(id)) return reply.code(404).send({ error: "No such token" });
+  audit(req, "token-revoked", String(id));
+  return { ok: true };
+});
 
 app.get("/api/alerts", async () => ({ active: engine.active(), recent: store.events.recent(100), muted: settings().muted }));
 
