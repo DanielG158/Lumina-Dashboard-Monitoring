@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { UnitToggle } from "./UnitToggle";
+import { setOverviewDetail, useOverviewDetail } from "../overviewPref";
 import { THEMES, getAccent, getShuffleMode, getShuffleSeconds, getTheme, setAccent, setShuffle, setTheme, type ShuffleMode } from "../theme";
 
 export function ThemeMenu() {
@@ -8,6 +9,7 @@ export function ThemeMenu() {
   const [accent, setA] = useState(getAccent());
   const [mode, setMode] = useState<ShuffleMode>(getShuffleMode());
   const [secs, setSecs] = useState(getShuffleSeconds());
+  const detail = useOverviewDetail();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -35,6 +37,13 @@ export function ThemeMenu() {
             <input type="color" value={accent ?? "#7c9cff"} onChange={(e) => { setAccent(e.target.value); setA(e.target.value); }} />
           </label>
           {accent && <button className="btn sm" onClick={() => { setAccent(null); setA(null); }}>Reset accent</button>}
+          <label className="stack" style={{ gap: 4 }}>
+            <span>Overview detail</span>
+            <select className="field" value={detail} onChange={(e) => setOverviewDetail(e.target.value as "easy" | "full")}>
+              <option value="easy">Easy to read: big counts, only what needs a look</option>
+              <option value="full">Everything: every VM and monitor by name</option>
+            </select>
+          </label>
           <label className="stack" style={{ gap: 4 }}>
             <span>Burn-in protection</span>
             <div className="row">

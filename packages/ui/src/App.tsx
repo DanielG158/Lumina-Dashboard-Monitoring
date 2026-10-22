@@ -152,7 +152,7 @@ export function App() {
   }, [tab]);
   useEffect(() => { const n = alerts.active.filter((a) => !a.suppressed).length; document.title = n ? `(${n}) Lumina` : "Lumina"; }, [alerts.active]);
 
-  const go = useCallback((t: string) => { location.hash = `#/${t}`; setTab(t as Tab); window.scrollTo({ top: 0 }); }, []);
+  const go = useCallback((t: string, keepScroll = false) => { location.hash = `#/${t}`; setTab(t as Tab); if (!keepScroll) window.scrollTo({ top: 0 }); }, []);
 
   const ctx: Lumina = useMemo(() => ({
     auth, role, can, modules, instances, alerts, connected, notify,
@@ -163,8 +163,8 @@ export function App() {
     reloadAuth, reloadAlerts, reloadInstances,
     requireLogin: () => setLogin({}),
     go,
-    edit: (id) => { setAdding(false); setEditing(id); go("instances"); },
-    startAdding: () => { setEditing(null); setAdding(true); },
+    edit: (id) => { setAdding(false); setEditing(id); if (location.hash !== "#/instances") go("instances"); },
+    startAdding: () => { setEditing(null); setAdding(true); if (location.hash !== "#/instances") go("instances"); },
   }), [auth, role, can, modules, instances, alerts, maintenance, connected, notify, reloadAuth, reloadAlerts, reloadInstances, reloadMaintenance, go]);
 
   async function enterTv() {
@@ -197,7 +197,7 @@ export function App() {
       ) : (
         <div className={`app ${tab === "overview" ? "fit" : ""}`}>
           <header className="topbar">
-            <div className="brand"><LuminaMark size={28} />Lumina <small>homelab</small></div>
+            <div className="brand"><LuminaMark size={28} />Lumina{auth.siteName ? <small>{auth.siteName}</small> : null}</div>
             <nav className="nav" aria-label="Sections">
               {tabs.map(([id, label]) => (
                 <button key={id} className={tab === id ? "on" : ""} onClick={() => go(id)}>

@@ -63,6 +63,7 @@ const settings = () => ({
   metricsRetentionDays: store.settings.get("metricsRetentionDays", 14),
   forecastWarnDays: store.settings.get("forecastWarnDays", 14),
   eventRetentionDays: store.settings.get("eventRetentionDays", 365),
+  siteName: store.settings.get<string>("siteName", ""),
   muted: store.settings.get<string[]>("muted", []),
   publicView: store.settings.get("publicView", true),
 });
@@ -234,6 +235,26 @@ app.put("/api/instances/:id", { preHandler: admin }, async (req, reply) => {
   audit(req, "instance-edited", id, intervalMs ? `refresh ${intervalMs / 1000}s` : null);
   io.emit("instances:reordered");
   return { ok: true };
+});
+
+// Rename: the name is how history, alerts, schedules and maintenance windows refer to an instance, so all of them are moved too.
+app.put("/api/instances/:id/name", { preHandler: admin }, async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const { name } = z.object({ name: InstanceName }).parse(req.body);
+  const row = store.instances.get(id);
+  if (!row) return reply.code(404).send({ error: "instance not found" });
+  if (name === id) return { ok: true, name };
+  if (store.instances.list().some((i) => i.instanceId.toLowerCase() === name.toLowerCase() && i.instanceId !== id)) return reply.code(409).send({ error: `An instance named "${name}" already exists` });
+  metrics.flush(); // minute-by-minute history still in memory is saved under the old name first, so it moves too
+  await registry.drop(id);
+  store.instances.rename(id, name);
+  engine.rename(id, name);
+  await registry.start(row.moduleId, name, row.config, { intervalMs: row.pollIntervalMs, enabled: row.enabled, position: row.position });
+  audit(req, "instance-renamed", id, `${id} -> ${name}`);
+  io.emit("instances:reordered");
+  io.emit("alerts:changed");
+  io.emit("maintenance:changed");
+  return { ok: true, name };
 });
 
 app.delete("/api/instances/:id", { preHandler: admin }, async (req) => {
@@ -464,6 +485,7 @@ app.put("/api/settings", { preHandler: admin }, async (req) => {
     metricsRetentionDays: z.number().int().min(1).max(365),
     forecastWarnDays: z.number().int().min(1).max(365).default(14),
     eventRetentionDays: z.number().int().min(7).max(3650).default(365),
+    siteName: z.string().trim().max(40).default(""),
     publicView: z.boolean(),
   }).parse(req.body);
   for (const [k, v] of Object.entries(body)) store.settings.set(k, v);

@@ -19,7 +19,7 @@ function General() {
   async function save(e: FormEvent) {
     e.preventDefault();
     try {
-      await api.saveSettings({ sessionIdleMinutes: s!.sessionIdleMinutes, alertConfirmPolls: s!.alertConfirmPolls, metricsRetentionDays: s!.metricsRetentionDays, forecastWarnDays: s!.forecastWarnDays, eventRetentionDays: s!.eventRetentionDays, publicView: s!.publicView });
+      await api.saveSettings({ sessionIdleMinutes: s!.sessionIdleMinutes, alertConfirmPolls: s!.alertConfirmPolls, metricsRetentionDays: s!.metricsRetentionDays, forecastWarnDays: s!.forecastWarnDays, eventRetentionDays: s!.eventRetentionDays, siteName: s!.siteName ?? "", publicView: s!.publicView });
       notify("Settings saved");
       await reloadAuth();
     } catch (x) { notify(err(x), true); }
@@ -37,6 +37,9 @@ function General() {
       </Field>
       <Field label="Keep history for (days)" help="Charts use this history. Longer uses more disk.">
         <input className="field" type="number" min={1} max={365} value={s.metricsRetentionDays} onChange={num("metricsRetentionDays")} />
+      </Field>
+      <Field label="Name shown next to the logo (optional)" help="For example the name of the site this Lumina watches (Office, Home). Leave it empty to show just Lumina.">
+        <input className="field" maxLength={40} value={s.siteName ?? ""} placeholder="no name" onChange={(e) => setS({ ...s, siteName: e.target.value })} />
       </Field>
       <Field label="Keep alert history for (days)" help="The Alerts page keeps every alert that long, with search and filters. Alerts that are still active are never removed.">
         <input className="field" type="number" min={7} max={3650} value={s.eventRetentionDays} onChange={num("eventRetentionDays")} />

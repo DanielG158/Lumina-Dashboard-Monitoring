@@ -40,9 +40,9 @@ Other ways: `sudo ./install.sh --http` (plain HTTP on 8080), `sudo ./install.sh 
 1. Open `https://<your-server>/` (accept the certificate warning once, see below).
 2. Enter the **setup code** the installer printed (it is also in `/var/lib/lumina/setup-code` until you finish). Choose a username and a password of at least 8 characters. This is your **admin** account. To move from another Lumina instead, choose **Restore from backup**.
 3. Go to **Instances → Add**, pick a type and fill in the form (each section below tells you what to enter).
-4. Optional but recommended: **Settings → Notifications** (so problems reach your phone), **Settings → Users** (an operator account for day-to-day use), and press **TV mode** on the screen you want to leave on.
+4. Optional but recommended: **Settings → General → Name shown next to the logo** (for example "Office"), the **Theme** menu (colours, burn-in protection, network speed units, and **Overview detail**: *Easy to read* shows big counts and only the VMs and monitors that need a look, *Everything* lists every one by name), **Settings → Notifications** (so problems reach your phone), **Settings → Users** (an operator account for day-to-day use), and press **TV mode** on the screen you want to leave on.
 
-Every instance has its own **refresh rate** (Instances → Edit) and shows its warnings on its own card. You can add more than one of most types (two Proxmox servers, several iLOs, and so on).
+Every instance has its own **refresh rate** and name (Instances → **Edit**, which opens as a popup so the page does not jump; renaming keeps its history, alerts, schedules and maintenance windows) and shows its warnings on its own card. You can add more than one of most types (two Proxmox servers, several iLOs, and so on).
 
 ## Connecting your devices
 

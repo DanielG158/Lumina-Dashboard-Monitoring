@@ -3,6 +3,7 @@ import { useLumina } from "../context";
 import { Spark } from "../components/charts";
 import { Icon } from "../components/Icons";
 import { ago, gather, summarize } from "../summaries";
+import { useOverviewDetail } from "../overviewPref";
 import { orderOf, useBurnInLayout, useDisplayPrefs } from "../shuffle";
 import { forecastText, useCycleEnergy, useForecasts } from "../hooks";
 import { clockTime, mbps, money } from "../format";
@@ -67,6 +68,7 @@ interface Kpi {
 
 export function Overview({ kiosk = false, onExit }: { kiosk?: boolean; onExit?: () => void }) {
   const L = useLumina();
+  const detail = useOverviewDetail();
   const now = useNow(1000);
   const fleet = useMemo(() => gather(L.instances), [L.instances]);
   const energy = useCycleEnergy();
@@ -219,7 +221,41 @@ export function Overview({ kiosk = false, onExit }: { kiosk?: boolean; onExit?: 
 
       <div className={`cols ${layout.swap ? "swap" : ""}`} style={{ order: orderOf(layout.blocks, "cols") }}>
         <div style={{ order: layout.swap ? 1 : 0 }}>
-          {guests.length > 0 && (
+          {guests.length > 0 && detail === "easy" && (() => {
+            const stopped = guests.filter((g) => g.status !== "running");
+            const pct = (a: number, b: number) => (b ? (a / b) * 100 : 0);
+            // Guests that were stopped on purpose are normal: the bars only turn red for ones that stopped on their own.
+            const crashed = (list: typeof guests) => list.some((g) => g.status !== "running" && stoppedUnexpectedly.has(String(g.vmid)));
+            return (
+              <section className="wpanel" style={{ order: oL("guests") }}>
+                <h3>Virtual machines &amp; containers <span className="meta">{running(guests)}/{guests.length} running</span></h3>
+                <div className="pbody">
+                  <div className="bigrow">
+                    <div className="bigstat"><div className="num">{running(vms)}<small>/{vms.length}</small></div><div className="lbl">virtual machines running</div><div className="bar"><i className={crashed(vms) ? "bad" : ""} style={{ width: `${pct(running(vms), vms.length)}%` }} /></div></div>
+                    <div className="bigstat"><div className="num">{running(cts)}<small>/{cts.length}</small></div><div className="lbl">containers running</div><div className="bar"><i className={crashed(cts) ? "bad" : ""} style={{ width: `${pct(running(cts), cts.length)}%` }} /></div></div>
+                  </div>
+                  {stopped.length === 0 ? <div className="okline"><span className="dot up" /> Everything is running.</div> : (
+                    <>
+                      <div className="sub" style={{ marginTop: 8 }}>Not running</div>
+                      <div className="chipgrid">
+                        {stopped.map((g) => {
+                          const bad = stoppedUnexpectedly.has(String(g.vmid));
+                          return (
+                            <div key={`${g.instanceId}-${g.vmid}`} className={`gchip ${bad ? "bad" : "off"}`} onClick={() => L.go("instances")} title={`${g.name} (${g.type === "qemu" ? "VM" : "CT"} ${g.vmid}) — ${g.status}${bad ? " (stopped unexpectedly)" : ""}`}>
+                              <span className={`dot ${bad ? "down" : "unknown"}`} />
+                              <span className="n">{g.name}</span>
+                              <span className="id">{g.type === "qemu" ? "VM" : "CT"} {g.vmid}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </section>
+            );
+          })()}
+          {guests.length > 0 && detail === "full" && (
             <section className="wpanel" style={{ order: oL("guests") }}>
               <h3>Virtual machines &amp; containers <span className="meta">{running(vms)}/{vms.length} VMs · {running(cts)}/{cts.length} CTs running</span></h3>
               <div className="pbody chipgrid">
@@ -238,7 +274,34 @@ export function Overview({ kiosk = false, onExit }: { kiosk?: boolean; onExit?: 
               </div>
             </section>
           )}
-          {monitors.length > 0 && (
+          {monitors.length > 0 && detail === "easy" && (() => {
+            const upN = monitors.filter((m) => m.status === "up").length;
+            const trouble = monitors.filter((m) => m.status !== "up");
+            const slow = [...monitors].filter((m) => m.status === "up" && m.responseMs != null).sort((a, b) => (b.responseMs as number) - (a.responseMs as number)).slice(0, 3);
+            return (
+              <section className="wpanel" style={{ order: oL("monitors") }}>
+                <h3>Monitors <span className="meta">{upN}/{monitors.length} up</span></h3>
+                <div className="pbody">
+                  <div className="bigrow">
+                    <div className="bigstat"><div className="num">{upN}<small>/{monitors.length}</small></div><div className="lbl">monitors up</div><div className="bar"><i className={trouble.length ? "bad" : ""} style={{ width: `${(upN / monitors.length) * 100}%` }} /></div></div>
+                  </div>
+                  {trouble.length === 0 ? <div className="okline"><span className="dot up" /> Everything answers.{slow.length > 0 && <span className="sub"> Slowest: {slow.map((m) => `${m.name} ${m.responseMs} ms`).join(" · ")}</span>}</div> : (
+                    <>
+                      <div className="sub" style={{ marginTop: 8 }}>Not answering</div>
+                      <div className="chipgrid wide">
+                        {trouble.map((m) => (
+                          <div key={`${m.instanceId}-${m.name}`} className={`gchip ${m.status === "down" ? "bad" : "warn"}`} onClick={() => L.go("instances")} title={`${m.name} — ${m.status}${m.target ? ` · ${m.target}` : ""}`}>
+                            <span className={`dot ${m.status}`} /><span className="n">{m.name}</span><span className="id">{m.status}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </section>
+            );
+          })()}
+          {monitors.length > 0 && detail === "full" && (
             <section className="wpanel" style={{ order: oL("monitors") }}>
               <h3>Monitors <span className="meta">{monitors.filter((m) => m.status === "up").length}/{monitors.length} up</span></h3>
               <div className="pbody chipgrid wide">

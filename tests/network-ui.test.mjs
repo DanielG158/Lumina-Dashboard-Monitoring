@@ -151,6 +151,35 @@ await page.locator('.page-title button:has-text("Mbit/s")').click();
   await ap.locator("select").first().selectOption({ label: "Network checks" });
   await ap.waitForTimeout(500);
   check("adding a Network checks instance shows the form too", (await ap.locator('input[aria-label="Check name"]').count()) >= 1 && (await ap.locator(".add textarea").count()) === 0);
+  await ap.keyboard.press("Escape");
+  await ap.waitForTimeout(300);
+  // editing happens in a popup over the page, and the name can be changed
+  await ap.setViewportSize({ width: 1400, height: 520 });
+  await ap.goto(`${base}/#/instances`);
+  await ap.waitForSelector("button.card-title");
+  for (const b of await ap.locator('button.card-title[aria-expanded="false"]').all()) await b.click().catch(() => undefined);
+  await ap.waitForTimeout(800);
+  await ap.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await ap.waitForTimeout(300);
+  const y0 = await ap.evaluate(() => window.scrollY);
+  const editBtns = ap.getByRole("button", { name: "Edit", exact: true });
+  await editBtns.last().click();
+  await ap.waitForSelector(".overlay .modal-sheet");
+  await ap.waitForTimeout(500);
+  const y1 = await ap.evaluate(() => window.scrollY);
+  check("opening Edit does not throw the page back to the top", y0 > 100 && Math.abs(y1 - y0) <= 30, `${y0} -> ${y1}`);
+  check("the edit form is a popup over the page", (await ap.locator(".overlay .modal-sheet input").count()) > 3);
+  const nameBox = ap.locator('.modal-sheet label:has-text("Instance name") input');
+  check("the instance name can be edited", (await nameBox.isEditable()) === true);
+  await ap.keyboard.press("Escape");
+  await ap.waitForTimeout(300);
+  check("Escape closes the popup and the page stays where it was", (await ap.locator(".overlay .modal-sheet").count()) === 0 && Math.abs((await ap.evaluate(() => window.scrollY)) - y0) <= 2);
+  await editBtns.last().click();
+  await ap.waitForSelector(".overlay .modal-sheet");
+  await ap.locator('.modal-sheet label:has-text("Instance name") input').fill("Edge Firewall");
+  await ap.locator(".modal-sheet").getByRole("button", { name: /^(Save|Update|Save changes)/ }).first().click();
+  check("renaming from the popup moves the instance to the new name", await until(async () => (await api("GET", "/api/instances")).data.some((i) => i.instanceId === "Edge Firewall") && !(await api("GET", "/api/instances")).data.some((i) => i.instanceId === "Firewall"), 20000));
+  await api("PUT", "/api/instances/Edge%20Firewall/name", { name: "Firewall" }); // put it back for the rest of the test
   check("no browser errors in the admin pages", aerrors.length === 0, aerrors.join(" | "));
   await actx.close();
 }

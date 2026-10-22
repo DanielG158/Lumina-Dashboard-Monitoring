@@ -73,8 +73,12 @@ export function AddInstance({ modules, editing, onDone, onClose }: Props) {
     setError(null);
     try {
       if (editing) {
-        await api.updateInstance(editing, config, poll);
-        onDone(`${editing} updated`);
+        const newName = instanceId.trim();
+        let current = editing;
+        // The name is changed first (history, alerts and schedules follow it), then the settings are saved under the new name.
+        if (newName && newName !== editing) { await api.renameInstance(editing, newName); current = newName; }
+        await api.updateInstance(current, config, poll);
+        onDone(current === editing ? `${editing} updated` : `Renamed to ${current} and updated`);
       } else {
         await api.addInstance(mod.id, instanceId.trim(), config, poll);
         onDone("Instance added");
@@ -104,7 +108,8 @@ export function AddInstance({ modules, editing, onDone, onClose }: Props) {
           </label>
           <label>
             Instance name
-            <input required readOnly={Boolean(editing)} value={instanceId} placeholder={mod?.id ?? ""} onChange={(e) => setInstanceId(e.target.value)} />
+            <input required maxLength={64} value={instanceId} placeholder={mod?.id ?? ""} onChange={(e) => setInstanceId(e.target.value)} />
+            {editing && instanceId.trim() !== editing && <small>Renaming keeps its history, alerts, schedules and maintenance windows.</small>}
           </label>
           {mod && <div className="full hint">{mod.description}</div>}
           {mod?.fields.map((f) =>

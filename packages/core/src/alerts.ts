@@ -146,6 +146,19 @@ export class AlertEngine {
   }
 
   /** Instance removed or disabled: close its alerts quietly. */
+  /** An instance was renamed: its alerts carry on under the new name without being resolved or announced again. */
+  rename(from: string, to: string) {
+    const f = [...this.firing.entries()].filter(([, a]) => a.instanceId === from);
+    for (const [k, a] of f) { this.firing.delete(k); a.instanceId = to; this.firing.set(`${to}\u0000${a.key}`, a); }
+    for (const k of [...this.pending.keys()]) {
+      if (!k.startsWith(`${from}\u0000`)) continue;
+      const v = this.pending.get(k)!;
+      this.pending.delete(k);
+      this.pending.set(`${to}\u0000${k.slice(from.length + 1)}`, v);
+    }
+    if (f.length) this.io.emit("alerts:changed");
+  }
+
   clearInstance(instanceId: string) {
     let changed = false;
     for (const [id, a] of this.firing) {

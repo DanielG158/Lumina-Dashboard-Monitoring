@@ -297,6 +297,25 @@ export function openDb(path: string) {
         db.prepare("DELETE FROM module_instances WHERE instance_id = ?").run(id);
         db.prepare("DELETE FROM metrics WHERE instance_id = ?").run(id);
       },
+      /** Everything that refers to an instance by name follows it: history, alerts, schedules, maintenance windows, energy and speed results. */
+      rename: (from: string, to: string) =>
+        db.transaction(() => {
+          db.prepare("UPDATE module_instances SET instance_id = ? WHERE instance_id = ?").run(to, from);
+          for (const table of ["metrics", "events", "schedules", "energy_guest_buckets", "speed_results"]) db.prepare(`UPDATE ${table} SET instance_id = ? WHERE instance_id = ?`).run(to, from);
+          for (const metric of ["watts", "power"]) db.prepare("UPDATE energy_buckets SET source_key = ? WHERE source_key = ?").run(`${metric}:${to}`, `${metric}:${from}`);
+          for (const m of db.prepare("SELECT id, scope FROM maintenance").all() as { id: number; scope: string }[]) {
+            const scope = JSON.parse(m.scope) as string[];
+            if (scope.includes(from)) db.prepare("UPDATE maintenance SET scope = ? WHERE id = ?").run(JSON.stringify(scope.map((x) => (x === from ? to : x))), m.id);
+          }
+          const energy = db.prepare("SELECT value FROM settings WHERE key = 'energy'").get() as { value: string } | undefined;
+          if (energy) {
+            const v = JSON.parse(energy.value) as { source?: string };
+            if (v.source === `watts:${from}` || v.source === `power:${from}`) {
+              v.source = `${v.source.split(":")[0]}:${to}`;
+              db.prepare("UPDATE settings SET value = ? WHERE key = 'energy'").run(JSON.stringify(v));
+            }
+          }
+        })(),
       setEnabled: (id: string, enabled: boolean) => db.prepare("UPDATE module_instances SET enabled = ? WHERE instance_id = ?").run(enabled ? 1 : 0, id),
       setOrder: (ids: string[]) => {
         const upd = db.prepare("UPDATE module_instances SET position = ? WHERE instance_id = ?");

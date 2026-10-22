@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import type { ReactElement } from "react";
 import { AddInstance } from "../components/AddInstance";
 import { CardShell, type CardProps } from "../components/CardShell";
@@ -30,6 +31,15 @@ interface Props {
 }
 
 export function InstancesPage({ adding, editing, onClose, onDone }: Props) {
+  const open = adding || Boolean(editing);
+  useEffect(() => {
+    if (!open) return;
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", key);
+    document.body.classList.add("modal-open");
+    return () => { document.removeEventListener("keydown", key); document.body.classList.remove("modal-open"); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
   const L = useLumina();
   return (
     <div>
@@ -40,7 +50,12 @@ export function InstancesPage({ adding, editing, onClose, onDone }: Props) {
       </div>
 
       {(adding || editing) && L.can.admin && (
-        <AddInstance key={editing ?? "new"} modules={L.modules} editing={editing ?? undefined} onClose={onClose} onDone={onDone} />
+        // A popup over the page: the list behind keeps its scroll position, so editing a card at the bottom does not throw you to the top.
+        <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} role="dialog" aria-modal="true" aria-label={editing ? `Edit ${editing}` : "Add module"}>
+          <div className="modal-sheet">
+            <AddInstance key={editing ?? "new"} modules={L.modules} editing={editing ?? undefined} onClose={onClose} onDone={onDone} />
+          </div>
+        </div>
       )}
 
       {L.instances.length === 0 && !adding && (

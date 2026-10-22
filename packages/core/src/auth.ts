@@ -127,7 +127,7 @@ export function registerAuthRoutes(
 
   app.get("/api/auth/status", async (req) => {
     const session = auth.authenticate(req.headers.cookie);
-    return { setupRequired: store.users.count() === 0, setupCodeRequired: setupCode.required(), openAccess: openAccess(), publicView: publicView(), user: session ? publicUser(session.user) : null };
+    return { setupRequired: store.users.count() === 0, setupCodeRequired: setupCode.required(), openAccess: openAccess(), publicView: publicView(), siteName: store.settings.get<string>("siteName", ""), user: session ? publicUser(session.user) : null };
   });
 
   app.post("/api/auth/setup", async (req, reply) => {

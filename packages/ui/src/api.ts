@@ -75,6 +75,7 @@ export interface AuthStatus {
   setupCodeRequired: boolean;
   openAccess: boolean;
   publicView: boolean;
+  siteName?: string;
   user: { id: number; username: string; role: "operator" | "admin" } | null;
 }
 
@@ -107,6 +108,7 @@ export interface ChannelType {
 export interface AppSettings {
   forecastWarnDays: number;
   eventRetentionDays: number;
+  siteName: string;
   sessionIdleMinutes: number;
   alertConfirmPolls: number;
   metricsRetentionDays: number;
@@ -284,6 +286,7 @@ export const api = {
   addInstance: (moduleId: string, instanceId: string, config: unknown, pollIntervalSec?: number | null) =>
     req("/instances", json("POST", { moduleId, instanceId, config, pollIntervalSec })),
   getConfig: (id: string) => req<{ moduleId: string; config: Record<string, unknown>; pollIntervalSec: number | null }>(`/instances/${enc(id)}/config`),
+  renameInstance: (id: string, name: string) => req<{ ok: boolean; name: string }>(`/instances/${enc(id)}/name`, json("PUT", { name })),
   updateInstance: (id: string, config: unknown, pollIntervalSec?: number | null) => req(`/instances/${enc(id)}`, json("PUT", { config, pollIntervalSec })),
   removeInstance: (id: string) => req(`/instances/${enc(id)}`, { method: "DELETE" }),
   setEnabled: (id: string, enabled: boolean) => req(`/instances/${enc(id)}/enabled`, json("POST", { enabled })),

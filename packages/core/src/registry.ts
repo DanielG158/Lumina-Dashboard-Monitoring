@@ -237,6 +237,12 @@ export class ModuleRegistry {
     await entry.instance.dispose?.();
   }
 
+  /** Stops an instance and forgets it without announcing a removal (used when it is renamed and carries on under another name). */
+  async drop(instanceId: string) {
+    await this.stop(instanceId);
+    this.meta.delete(instanceId);
+  }
+
   async remove(instanceId: string) {
     await this.stop(instanceId);
     this.meta.delete(instanceId);
