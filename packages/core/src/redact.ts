@@ -36,6 +36,10 @@ function redactData(moduleId: string, d: Obj): Obj {
         logs: { iml: null, iel: null },
         warnings: [],
       };
+    case "netcheck":
+      return { ...d, targets: (d.targets ?? []).map((t: Obj) => ({ ...t, target: "" })) };
+    case "snmp":
+      return { ...d, sysDescr: null, interfaces: (d.interfaces ?? []).map((i: Obj) => ({ ...i, alias: null })) };
     case "uptime-kuma":
       return { ...d, monitors: (d.monitors ?? []).map((m: Obj) => ({ ...m, target: "" })) };
     case "cloudflare":

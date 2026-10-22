@@ -4,7 +4,7 @@ Lumina is a homelab dashboard: one screen that shows whether everything is up, w
 This document describes what has been built, how it works, how to run and troubleshoot it, and what is still missing.
 The original plan is in [design.md](design.md); the security review is in [security-assessment.md](security-assessment.md).
 
-Contents: [1 Status](#1-status-against-the-original-plan) · [2 Architecture](#2-architecture) · [3 Modules](#3-modules) · [4 Alerts and notifications](#4-alerts-and-notifications) · [4b Maintenance, schedules, backups, forecast](#4b-maintenance-scheduled-actions-backup-age-and-storage-forecast) · [4c Energy and cost](#4c-energy-and-cost) · [5 History](#5-history-charts) · [6 Access and security](#6-access-and-security-model) · [7 Using the UI](#7-using-the-web-ui) · [8 Install and operate](#8-install-and-operate) · [9 Configuration](#9-configuration-reference) · [10 API](#10-api-reference) · [11 Troubleshooting](#11-troubleshooting) · [12 Testing](#12-what-was-tested) · [13 Not done](#13-not-done-yet)
+Contents: [1 Status](#1-status-against-the-original-plan) · [2 Architecture](#2-architecture) · [3 Modules](#3-modules) · [4 Alerts and notifications](#4-alerts-and-notifications) · [4b Maintenance, schedules, backups, forecast](#4b-maintenance-scheduled-actions-backup-age-and-storage-forecast) · [4c Energy and cost](#4c-energy-and-cost) · [4e Network](#4e-network-monitoring) · [5 History](#5-history-charts) · [6 Access and security](#6-access-and-security-model) · [7 Using the UI](#7-using-the-web-ui) · [8 Install and operate](#8-install-and-operate) · [9 Configuration](#9-configuration-reference) · [10 API](#10-api-reference) · [11 Troubleshooting](#11-troubleshooting) · [12 Testing](#12-what-was-tested) · [13 Not done](#13-not-done-yet)
 
 ---
 
@@ -151,6 +151,35 @@ If you run Lumina in more than one place (say, home and an office), one of them 
 **Network:** this Lumina must be able to reach the other one. A site-to-site VPN, a Cloudflare Tunnel (put the tunnel's address in step 2), or a reverse proxy with HTTPS all work. If you expose it to the internet, turn off public viewing on that Lumina and rely on the token. Do not forward a plain-HTTP port to the internet.
 
 Two Luminas can watch each other: devices and alerts that came from another Lumina are never passed on again, so alerts do not bounce back and forth.
+
+## 4e. Network monitoring
+
+Two modules, both added under **Instances → Add**:
+
+**Network checks** (`netcheck`). One line per check, in the form `Name | type | address`:
+
+```
+Gateway      | ping | 192.168.1.1
+Internet     | ping | 1.1.1.1
+DNS          | dns  | example.com @192.168.1.1
+Proxmox web  | tcp  | 192.168.1.10:8006
+Website      | http | https://example.com
+```
+
+Each poll sends a few pings (default 4) and records the average latency, jitter and **packet loss**; TCP, DNS and web checks record how long they took. History charts, a "recent loss" figure over the last 20 polls, and alerts for a target that stops answering, loses packets (default 20% or more) or is slow (default 150 ms or more) come with it. Pick a check interval per instance (10 seconds up to minutes).
+
+*Internet speed test (optional, off by default).* Tick it and Lumina downloads and uploads test data every few hours (default 6) to the addresses you set (the defaults use Cloudflare's public speed test), keeps a history, and can warn when the download falls below a limit you choose. It uses your internet connection and tells that service your address, which is why it is opt-in. Operators get a **Run speed test now** button.
+
+*Pings and permissions.* Lumina sends pings as an unprivileged user. The installer allows that (`net.ipv4.ping_group_range`). If the card says pings are not allowed (some containers refuse the setting), it shows the one command to run; TCP, DNS and web checks work regardless.
+
+**Router / switch (SNMP)** (`snmp`). Reads any device that speaks SNMP: per-interface status, speed, traffic in and out (from the 64-bit counters, so fast links are accurate), errors, plus uptime and, where the device offers it, load and memory. Name the links that matter under *Interfaces to alert on* (for example `igb0, wan`): those raise a critical alert when the link goes down, and unused down ports are hidden. A link above 90% of its speed raises a warning. SNMP version 3 (authenticated and encrypted) is supported and preferred; version 2c sends its community in clear text, so allow only this Lumina's address on the device.
+
+Switching SNMP on (menu names vary by version):
+
+- **pfSense:** Services → SNMP. Enable, set a community, bind to the LAN interface, keep "MibII" on.
+- **OPNsense:** System → Firmware → Plugins, install `os-net-snmp`; then Services → Net-SNMP: enable, set the community, listen on LAN.
+- **OpenWrt:** `opkg update && opkg install snmpd`, then set the community in `/etc/config/snmpd` (or the LuCI SNMP page) and restart `snmpd`.
+- **Unmanaged switches** have no SNMP. Use ping checks for them, and read the router port they connect to.
 
 ## 5. History (charts)
 

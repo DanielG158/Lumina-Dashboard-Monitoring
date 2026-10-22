@@ -26,3 +26,12 @@ export function toLocalInput(ts: number): string {
 }
 export const fromLocalInput = (s: string) => Math.floor(new Date(s).getTime() / 1000);
 export const toDateInput = (ts: number) => toLocalInput(ts).slice(0, 10);
+
+/** 12_500_000 -> "12.5 Mbit/s" */
+export function bitrate(bps: number | null | undefined): string {
+  if (bps === null || bps === undefined || !Number.isFinite(bps)) return "—";
+  if (bps >= 1e9) return `${(bps / 1e9).toFixed(2)} Gbit/s`;
+  if (bps >= 1e6) return `${(bps / 1e6).toFixed(bps >= 1e8 ? 0 : 1)} Mbit/s`;
+  if (bps >= 1e3) return `${(bps / 1e3).toFixed(0)} kbit/s`;
+  return `${Math.round(bps)} bit/s`;
+}

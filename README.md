@@ -10,6 +10,7 @@
 - **Wall display.** The Overview fits one screen with no scrolling at any size, text scales to fill it, and **TV mode** keeps the screen awake. Cards move every 15 seconds to prevent burn-in. If the connection to Lumina drops, the screen greys out and says so instead of showing old numbers.
 - **Proxmox.** Nodes, VMs and containers, storage, disks, backup jobs, tasks. Start, stop, reboot, **Snapshot**, **Back up now** and a **Console** link for each guest. Warns when a guest has no recent backup, and forecasts when a storage volume will fill up.
 - **HP iLO 4.** Power, temperatures, fans (with 24-hour charts), power supplies, drives, memory, logs, and power on/off buttons.
+- **Network monitoring.** Ping, TCP, DNS and web checks with latency and packet-loss history, an optional internet speed test, and SNMP link status and traffic for pfSense, OPNsense, OpenWrt and managed switches.
 - **Several sites.** Add **Another Lumina** to see a second site's devices and alerts here, using a read-only access token, with no VPN session needed.
 - **UPS (apcupsd), Uptime Kuma, Cloudflare tunnels.** Status, history, alerts. Cloudflare hostnames can be added and removed.
 - **Energy and cost.** Turns the UPS or iLO power reading into kWh and money for any day, range or billing cycle. Fully adjustable tariff (flat, time-of-day, progressive blocks), currency, tax, billing day and budget. Shows the cost per VM and container, projects the month, and has a helper to calibrate against your electricity meter.
@@ -43,6 +44,8 @@ Other ways: `sudo ./install.sh --http` (plain HTTP on 8080), `sudo ./install.sh 
 | UPS | `apcupsd` running on the machine the UPS is connected to, with its network port (3551) reachable. |
 | Uptime Kuma | An API key (Settings → API Keys). |
 | Cloudflare | An API token with Tunnel and (optionally) DNS permissions. |
+| Network checks | Nothing: just list what to check. |
+| Router / switch (SNMP) | SNMP switched on at the device (v3 preferred). |
 
 The UI explains each field. More detail is in [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md).
 

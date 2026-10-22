@@ -145,6 +145,22 @@ export function Overview({ kiosk = false, onExit }: { kiosk?: boolean; onExit?: 
     const first = fleet.monitors[0];
     kpis.push({ key: "mon", icon: "uptime-kuma", label: "Monitors up", value: `${fleet.monitors.filter((m) => m.status === "up").length}/${fleet.monitors.length}`, sub: down ? `${down} down` : "none down", level: down ? "critical" : "ok", go: "instances", spark: { instanceId: first.instanceId, metric: "response:avg", unit: " ms" } });
   }
+  {
+    const nets = L.instances.filter((i) => i.moduleId === "netcheck" && i.data);
+    if (nets.length) {
+      const all = nets.flatMap((i) => ((i.data as { targets: { ok: boolean; ms: number | null; lossPct: number }[] }).targets));
+      const up = all.filter((t) => t.ok).length;
+      const times = all.filter((t) => t.ok && t.ms !== null).map((t) => t.ms as number);
+      const loss = all.length ? all.reduce((a, t) => a + t.lossPct, 0) / all.length : 0;
+      const speed = nets.map((i) => (i.data as { speed: { downMbps: number | null } | null }).speed?.downMbps).find((x) => x != null);
+      const warn = all.some((t) => t.ok && t.lossPct >= 20);
+      kpis.push({
+        key: "net", icon: "netcheck", label: "Network checks", value: `${up}/${all.length}`,
+        sub: [times.length ? `${Math.round(times.reduce((a, b) => a + b, 0) / times.length)} ms` : null, loss > 0 ? `${Math.round(loss)}% loss` : null, speed != null ? `↓ ${speed} Mbps` : null].filter(Boolean).join(" · ") || "all answering",
+        level: up < all.length ? "critical" : warn ? "warning" : "ok", go: "instances", spark: { instanceId: nets[0].instanceId, metric: "rtt:avg", unit: " ms" },
+      });
+    }
+  }
   if (fleet.tunnels) kpis.push({ key: "tun", icon: "cloudflare", label: "Tunnels healthy", value: `${fleet.tunnels.healthy}/${fleet.tunnels.total}`, level: fleet.tunnels.healthy < fleet.tunnels.total ? "critical" : "ok", go: "instances" });
   if (fleet.worstStorage) {
     const s = fleet.worstStorage;

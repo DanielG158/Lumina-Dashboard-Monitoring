@@ -112,6 +112,17 @@ export function AddInstance({ modules, editing, onDone, onClose }: Props) {
             ) : (
               <label key={f.key}>
                 {f.label}
+                {f.type === "textarea" ? (
+                  <textarea
+                    required={f.required}
+                    rows={6}
+                    spellCheck={false}
+                    style={{ fontFamily: "ui-monospace, monospace", fontSize: 13 }}
+                    value={String(values[f.key] ?? "")}
+                    placeholder={f.placeholder}
+                    onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
+                  />
+                ) : (
                 <input
                   required={f.required && !(editing && f.type === "password")}
                   type={f.type === "password" ? "password" : f.type === "number" ? "number" : "text"}
@@ -120,6 +131,7 @@ export function AddInstance({ modules, editing, onDone, onClose }: Props) {
                   placeholder={editing && f.type === "password" ? "unchanged — leave blank to keep" : f.placeholder}
                   onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
                 />
+                )}
                 {f.help && <small>{f.help}</small>}
                 {f.key === "fingerprint" && (
                   <button

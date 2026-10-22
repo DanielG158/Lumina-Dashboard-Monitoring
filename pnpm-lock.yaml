@@ -190,9 +190,15 @@ importers:
       '@lumina/module-lumina-remote':
         specifier: workspace:*
         version: link:../modules/lumina-remote
+      '@lumina/module-netcheck':
+        specifier: workspace:*
+        version: link:../modules/netcheck
       '@lumina/module-proxmox':
         specifier: workspace:*
         version: link:../modules/proxmox
+      '@lumina/module-snmp':
+        specifier: workspace:*
+        version: link:../modules/snmp
       '@lumina/module-uptime-kuma':
         specifier: workspace:*
         version: link:../modules/uptime-kuma
@@ -292,11 +298,46 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
+  packages/modules/netcheck:
+    dependencies:
+      '@lumina/sdk':
+        specifier: workspace:*
+        version: link:../../sdk
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.3
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
   packages/modules/proxmox:
     dependencies:
       '@lumina/sdk':
         specifier: workspace:*
         version: link:../../sdk
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.3
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
+  packages/modules/snmp:
+    dependencies:
+      '@lumina/sdk':
+        specifier: workspace:*
+        version: link:../../sdk
+      net-snmp:
+        specifier: ^3.26.0
+        version: 3.29.2
       zod:
         specifier: ^3.23.0
         version: 3.25.76
@@ -1024,6 +1065,9 @@ packages:
   ajv@8.20.0:
     resolution: {integrity: sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA==}
 
+  asn1-ber@1.2.2:
+    resolution: {integrity: sha512-CbNem/7hxrjSiOAOOTX4iZxu+0m3jiLqlsERQwwPM1IDR/22M8IPpA1VVndCLw5KtjRYyRODbvAEIfuTogNDng==}
+
   atomic-sleep@1.0.0:
     resolution: {integrity: sha512-kNOjDqAh7px0XWNI+4QbzoiR/nTkHAWNud2uvnJquD1/x5a7EQZMJT0AczqK0Qn67oY/TTQ1LbUKajZpp3I9tQ==}
     engines: {node: '>=8.0.0'}
@@ -1320,6 +1364,9 @@ packages:
     resolution: {integrity: sha512-+EUsqGPLsM+j/zdChZjsnX51g4XrHFOIXwfnCVPGlQk/k5giakcKsuxCObBRu6DSm9opw/O6slWbJdghQM4bBg==}
     engines: {node: '>= 0.6'}
 
+  net-snmp@3.29.2:
+    resolution: {integrity: sha512-ZXQyrPayCUaZxkxXBvExAYjkvZsPDBYUpK8ljIzrA5a/jByYR4REr/hpbld9wJ0tCr8d/pM7pSogDC0B/syiXQ==}
+
   node-abi@3.96.0:
     resolution: {integrity: sha512-rebQ/lz7i0EkoLzUVSrKRzA69zMkwLp95kKMWoMDkkM00Suxz0D7zEQPwRml5fQum24mj7bPvmlgLAmu2JCiYg==}
     engines: {node: '>=10'}
@@ -1469,6 +1516,10 @@ packages:
 
   simple-get@4.0.1:
     resolution: {integrity: sha512-brv7p5WgH0jmQJr1ZDDfKDOSeWWg+OVypG99A/5vYGPqJ6pxiaHLy8nxtFjBA7oMa01ebA9gfh1uMCFqOuXxvA==}
+
+  smart-buffer@4.2.0:
+    resolution: {integrity: sha512-94hK0Hh8rPqQl2xXc3HsaBoOXKV20MToPkcXvwbISWLEs+64sBq5kFgn2kJDHb1Pry9yrP0dxrCI9RRci7RXKg==}
+    engines: {node: '>= 6.0.0', npm: '>= 3.0.0'}
 
   socket.io-adapter@2.5.8:
     resolution: {integrity: sha512-6Oy52pbg+kvdCVvjcN+FnY7BvxZ7cIHNScbvztT/It5d0vbwoJoVZmF2gjJmnV0/4WlXRfG15zc45ySk9Ah8bw==}
@@ -2124,6 +2175,8 @@ snapshots:
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
 
+  asn1-ber@1.2.2: {}
+
   atomic-sleep@1.0.0: {}
 
   avvio@9.3.0:
@@ -2448,6 +2501,11 @@ snapshots:
 
   negotiator@0.6.3: {}
 
+  net-snmp@3.29.2:
+    dependencies:
+      asn1-ber: 1.2.2
+      smart-buffer: 4.2.0
+
   node-abi@3.96.0:
     dependencies:
       semver: 7.8.5
@@ -2616,6 +2674,8 @@ snapshots:
       decompress-response: 6.0.0
       once: 1.4.0
       simple-concat: 1.0.1
+
+  smart-buffer@4.2.0: {}
 
   socket.io-adapter@2.5.8:
     dependencies:

@@ -1,7 +1,7 @@
 export interface ConfigField {
   key: string;
   label: string;
-  type: "text" | "password" | "number" | "boolean";
+  type: "text" | "textarea" | "password" | "number" | "boolean";
   required?: boolean;
   placeholder?: string;
   help?: string;
