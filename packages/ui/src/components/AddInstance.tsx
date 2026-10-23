@@ -146,6 +146,12 @@ export function AddInstance({ modules, editing, onDone, onClose }: Props) {
                 />
                 )}
                 {f.help && <small>{f.help}</small>}
+                {f.key === "verifyTls" && !values.verifyTls && !String(values.fingerprint ?? "").trim() && mod?.fields.some((x) => x.key === "fingerprint") && (
+                  <small className="warn">Certificate checking is off, so anyone on the network could pose as this device. Better: use "Detect from the device" in the Certificate fingerprint field below to pin its certificate.</small>
+                )}
+                {f.key === "port" && Number(values.port) === 162 && mod?.fields.some((x) => x.key === "version") && (
+                  <small className="warn">162 is the SNMP trap port, where devices send alerts out. Questions go to port 161.</small>
+                )}
                 {f.key === "fingerprint" && (
                   <button
                     type="button"

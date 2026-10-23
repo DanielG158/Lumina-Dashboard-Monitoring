@@ -345,3 +345,4 @@ body.modal-open { overflow: hidden; }
 
 /* the navy gate of the logo needs to be darker on the light theme */
 :root[data-theme="light"] { --mark-gate: #273962; }
+small.warn { color: var(--warn); }
