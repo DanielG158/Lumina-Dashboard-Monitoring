@@ -267,7 +267,7 @@ Lumina is a TypeScript monorepo: `packages/core` (Fastify, Socket.io, SQLite), `
 
 ## Status
 
-Lumina is young, and was written for and tested on one homelab. Proxmox, iLO 4, apcupsd and Uptime Kuma have run daily against real hardware. These have only been tested against automated fakes or briefly: **iLO 5 (Gen10), the Network checks, SNMP, HPE iLO (SNMP), TP-Link Omada and TP-Link Archer modules, watching another Lumina, the Cloudflare module and the Docker image**, and the scheduled actions and power buttons have never been run against real devices. Please read [the security notes](docs/security-assessment.md) before exposing it beyond your home network, and open an issue if something does not work.
+Lumina is young, and was written for and tested on one homelab. Proxmox, iLO 4, apcupsd and Uptime Kuma have run daily against real hardware. These have only been tested against automated fakes or briefly: **iLO 5 (Gen10), the Network checks, SNMP, HPE iLO (SNMP), TP-Link Omada and TP-Link Archer modules, watching another Lumina, the Cloudflare module (only its tunnel part has run against a real account) and the Docker image**, and the scheduled actions and power buttons have never been run against real devices. Please read [the security notes](docs/security-assessment.md) before exposing it beyond your home network, and open an issue if something does not work.
 
 Not built yet: NUT support, email notifications, LDAP or two-factor sign-in, a mobile app, auto-update, device discovery.
 

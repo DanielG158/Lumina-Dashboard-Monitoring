@@ -16,7 +16,7 @@ Contents: [1 Status](#1-status-against-the-original-plan) · [2 Architecture](#2
 | UPS | apcupsd, NUT, manual | apcupsd done (read-only). NUT and manual are not built, so UPS self-test and calibration are not possible |
 | iLO 4 | Power, fans, temperatures, fan control | Done via the Redfish API (no Python bridge needed): power, temperatures, fans, PSUs, RAID drives, CPUs, DIMMs, NICs, firmware, logs. Added power on/off/reset buttons. Fan control is not possible (iLO 4 has no supported API) |
 | Uptime Kuma | Monitor status and response time | Done through Kuma's `/metrics` endpoint with an API key |
-| Cloudflare | Tunnel status, add/remove/edit hostnames | Done, including optional DNS records. Not yet tried against a real account |
+| Cloudflare | Tunnel status, add/remove/edit hostnames | Done: tunnels, hostname and certificate checks, DNS records, traffic, dynamic DNS, Access logins (section 4h). Only the tunnel part has run against a real account |
 | SSH/RDP broker (JumpServer/Guacamole) | Planned | Not started |
 | Notifications | Email, FCM/APNs push, Telegram/Discord/Slack | Discord, Slack, Telegram, ntfy (phone push) and generic webhook. No email, FCM or APNs |
 | Authentication | LDAP, email, local, rate limiting, timeout | Local accounts with roles, lockout, idle timeout. No LDAP |
@@ -71,7 +71,7 @@ Refresh rates: default and the lowest an admin may choose. Each instance can ove
 | apcupsd | 10 s / 2 s | Host and port 3551; `NETSERVER on` and a suitable `NISIP` in `apcupsd.conf` |
 | HP iLO 4 | 15 s / 10 s | iLO URL, username, password (firmware 2.30 or newer for Redfish) |
 | Uptime Kuma | 15 s / 5 s | URL and an API key (Settings, API Keys) |
-| Cloudflare | 30 s / 10 s | API token (Account, Cloudflare Tunnel, Edit), account ID, optional zone ID for DNS records |
+| Cloudflare | 30 s / 10 s | API token (Account, Cloudflare Tunnel, Edit; more permissions for the optional parts, see 4h), account ID, optional zone ID |
 
 **Proxmox.** Reads nodes, guests, storage, disks with SMART health, network, backup jobs, recent tasks, cluster log, HA and pools; each
 endpoint is read separately so a missing permission only hides that section. Actions: start, stop, reboot, **snapshot** and **back up now** for each VM and container (not templates). Snapshot asks for an optional name (otherwise `lumina-<date>-<time>`) and description; for VMs the running memory is not included. Back up now asks for a backup-capable storage (shown with its usage and free space, with a warning at 90% full) and a mode: snapshot (no downtime, the default), suspend or stop. Backups use zstd compression. Progress and results appear under Recent tasks, and a failed backup raises an alert. Proxmox's own error text is shown when something is refused (for example a duplicate snapshot name). The token needs a
@@ -86,7 +86,7 @@ commands are never retried.
 
 **Uptime Kuma.** Parses the Prometheus metrics (status, response time, certificate days).
 
-**Cloudflare.** Lists tunnels and their public hostnames; admins can add, edit and remove hostnames (and the matching DNS record when a zone ID is set).
+**Cloudflare.** Lists tunnels and their public hostnames; admins can add, edit and remove hostnames (and the matching DNS record when a zone ID is set). See section 4h for hostname checks, DNS records, traffic, dynamic DNS and Access logins.
 
 ### Alert conditions and chart metrics per module
 
@@ -96,7 +96,7 @@ commands are never retried.
 | iLO | server health not OK, powered off, CPU/memory health, temperature at 90% / 100% of its limit, fan or PSU fault, RAID controller or drive fault or over 55 degrees, DIMM fault, iLO self-test failed, warning/critical hardware log entries in the last 3 days | power draw, hottest and inlet temperature, average fan speed, hottest drive |
 | apcupsd | communication lost, on battery, battery low, replace battery, load 85% or more, self-test failed | load, battery, runtime, input voltage, estimated watts |
 | Uptime Kuma | monitor down, certificate expiring or expired | monitors up/down, average and per-monitor response time |
-| Cloudflare | tunnel down or degraded | healthy/total tunnels, connections per tunnel |
+| Cloudflare | tunnel down, degraded or reconnecting again and again; a hostname not resolving, answering with HTTP 5xx or not answering; a certificate expiring (14 and 3 days); dynamic DNS failing; 10 or more refused Access logins in an hour | healthy/total tunnels, connections per tunnel, hostnames up, days until the soonest certificate expires, refused Access logins |
 
 Every instance also gets an **unreachable** alert after 3 failed polls in a row. A stop you trigger from Lumina is not "unexpected".
 
@@ -190,6 +190,32 @@ The `omada` module logs in to an Omada controller's web interface (the same logi
 ## 4g. TP-Link Archer routers
 
 The `tplink-router` module signs in to the admin page of a TP-Link Archer router (AX and C series with the "luci" interface), reads `admin/status?form=all` (internet address, CPU and memory, connected devices) and the firmware page, then signs out. Two firmware generations are handled and chosen automatically: an RSA-encrypted password with an AES-encrypted, signed conversation, and the newer RSA-only variant with JSON bodies. Safety rules: it never tries a wrong password more than once per 10 minutes; it signs out after every reading so the router's single admin session is free; if someone else is signed in it keeps the last reading. Not read: per-client traffic, Wi-Fi settings, anything that changes the router.
+
+## 4h. Cloudflare
+
+The `cloudflare` module talks to the Cloudflare API with one API token. Each part below needs its own token permission and has its own cache, so a missing permission is shown on the card as a one-line note and never stops the rest.
+
+| Part | Token permission | Needs | Cache |
+|---|---|---|---|
+| Tunnels, hostname editing | Account, Cloudflare Tunnel, Edit | account ID | every poll |
+| DNS records (list, add, edit, proxy on/off, delete) | Zone, DNS, Edit (Read to only look) | zone ID | 60 s |
+| Traffic for 7 days (GraphQL analytics) | Zone, Analytics, Read | zone ID | 5 min |
+| Access logins | Account, Access: Audit Logs, Read | Zero Trust switched on | 2 min |
+| Dynamic DNS | Zone, DNS, Edit | zone ID, existing A/AAAA record | public IP read every 2 min |
+
+**Hostname checks.** Every 5 minutes Lumina checks up to 40 hostnames: those in the ingress rules of dashboard-managed tunnels, DNS records that point at a tunnel (this is how a locally managed tunnel's hostnames are found), other proxied A/AAAA/CNAME records, and the names typed into *Other hostnames to check*. Each check does a DNS lookup, one HTTPS `HEAD /` request (no redirects followed) and reads the certificate's end date. The certificate is not rejected when untrusted, so its dates can always be read; whether a trusted authority signed it is recorded separately. Checks run in the background: a poll waits at most 2.5 seconds for them.
+
+**Alerts.** `tunnel:` down (critical) or degraded (warning); `flap:` a tunnel whose connection list gained new connections in three or more separate 2-minute stretches within 15 minutes (one `cloudflared` restart is one stretch); `host-dns:` name does not resolve (warning); `host-down:` no HTTPS answer (critical) or HTTP 5xx (warning); `cert:` 14 days or fewer left (warning), 3 or fewer or expired (critical); `ddns:` dynamic DNS could not update, or the record is missing (warning); `access-denied:` 10 or more refused Access logins in the last hour (warning).
+
+**Dynamic DNS.** Off unless hostnames are typed into the second text field. The public IP comes from Cloudflare's own trace page (`/cdn-cgi/trace`). A record is rewritten only if it already exists, is of type A (or AAAA for an IPv6 address) and has a different address; Lumina never creates records this way. Behind a VPN or proxy the address found is not your home address, so leave this off there.
+
+**Actions (admin only):** `add-endpoint`, `edit-endpoint`, `remove-endpoint` (tunnel hostnames), `dns-add`, `dns-edit` (content and/or proxy), `dns-remove` (marked dangerous). DNS content is checked before sending: an A record needs an IPv4 address, an AAAA an IPv6 one.
+
+**Anonymous viewers** see tunnels, hostname results, traffic and the refused-login count. Record contents, resolved addresses, the public IP and Access log rows (e-mails, IPs) are removed.
+
+**Chart metrics:** `tunnels:healthy`, `tunnels:total`, `connections:<tunnel>`, `hostnames:up`, `hostnames:total`, `cert:min-days`, `access:denied1h`.
+
+**For the tests only:** the environment variables `LUMINA_CLOUDFLARE_API` and `LUMINA_CLOUDFLARE_CHECK_PORT` point the module at a fake API and a local HTTPS port. They are not meant for normal use.
 
 ## 5. History (charts)
 
@@ -366,11 +392,12 @@ The tests live in `tests/` and run with `pnpm test` (everything, needs Chromium)
 - **features.test.mjs:** maintenance windows, scheduled actions, backup freshness, storage forecast, and the energy engine (tariffs, gap filling, billing cycles, calibration, custom date ranges).
 - **guest-cost.test.mjs:** how the server's electricity is split between guests, with hand-calculated answers.
 - **security.test.mjs:** setup code, a permission matrix over every API route, cross-site posts, injection payloads, size limits, error leakage, headers, redaction over HTTP and WebSocket, an XSS payload rendered in a real browser, file permissions, no secrets in logs.
+- **cloudflare.test.mjs, cloudflare-ui.test.mjs:** the Cloudflare module against a fake API and local HTTPS servers (certificate dates, HTTP errors, refused connections, reconnect counting, DNS actions, dynamic DNS, missing permissions, redaction), and its card in a real browser as a viewer and as an admin.
 - **features-ui.test.mjs, snapshot-backup-ui.test.mjs:** the Energy, Maintenance, Overview and Proxmox pages in a real browser, including TV mode fitting at 1920x1080 and 1366x768 with nothing cut off.
 
 Modules were exercised against fake devices speaking their real protocols (including every iLO power command and its safety checks), and the Proxmox, apcupsd, iLO and Uptime Kuma modules have run against real hardware.
 
-**Not tested:** the Docker image, the Cloudflare module against a real account, iLO power commands and Proxmox start/stop/snapshot/backup buttons against real devices (deliberately), and scheduled actions against real devices.
+**Not tested:** the Docker image, the Cloudflare module's DNS, traffic, dynamic DNS and Access parts against a real account, iLO power commands and Proxmox start/stop/snapshot/backup buttons against real devices (deliberately), and scheduled actions against real devices.
 
 ## 13. Not done yet
 
