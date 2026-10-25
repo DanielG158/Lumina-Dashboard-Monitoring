@@ -39,7 +39,9 @@ export function summarize(i: InstanceUpdate): string {
       return `${d.summary?.up ?? 0} up · ${d.summary?.down ?? 0} down${d.summary?.pending ? ` · ${d.summary.pending} pending` : ""}`;
     case "cloudflare": {
       const t = (d.tunnels ?? []) as Obj[];
-      return `${t.filter((x) => x.status === "healthy").length}/${t.length} tunnels healthy`;
+      const hs = ((d.hostnames ?? []) as Obj[]).filter((h) => !h.pending);
+      const up = hs.filter((h) => h.dns?.ok && h.https?.ok && (h.https.status ?? 0) < 500).length;
+      return `${t.filter((x) => x.status === "healthy").length}/${t.length} tunnels healthy${hs.length ? ` · ${up}/${hs.length} hostnames up` : ""}`;
     }
     case "lumina": {
       const dev = (d.devices ?? []) as Obj[];

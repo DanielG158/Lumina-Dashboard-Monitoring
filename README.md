@@ -14,7 +14,7 @@
 - **HP iLO 4.** Power, temperatures, fans (with 24-hour charts), power supplies, drives, memory, logs, and power on/off buttons.
 - **Network monitoring.** Ping, TCP, DNS and web checks with latency and packet-loss history, an optional internet speed test, and SNMP link status and traffic for pfSense, OPNsense, OpenWrt and managed switches.
 - **Several sites.** Add **Another Lumina** to see a second site's devices and alerts here, using a read-only access token, with no VPN session needed.
-- **UPS (apcupsd), Uptime Kuma, Cloudflare tunnels.** Status, history, alerts. Cloudflare hostnames can be added and removed.
+- **UPS (apcupsd), Uptime Kuma, Cloudflare tunnels.** Status, history, alerts. Cloudflare: hostname health and certificate dates, DNS records, traffic, dynamic DNS and Access logins.
 - **Energy and cost.** Turns the UPS or iLO power reading into kWh and money for any day, range or billing cycle. Fully adjustable tariff (flat, time-of-day, progressive blocks), currency, tax, billing day and budget. Shows the cost per VM and container, projects the month, and has a helper to calibrate against your electricity meter.
 - **Alerts.** Every module reports warnings on its own card. Notifications to Discord, Slack, Telegram, ntfy or any webhook. Maintenance windows and scheduled actions (snapshot at 2 a.m., power on at 7 a.m.) keep planned work from raising false alarms.
 - **Access levels.** Anyone on your network can *view* without logging in. **Operators** sign in to start and stop things. **Admins** add, edit and remove everything else. Sensitive details are hidden from anonymous viewers.
@@ -116,7 +116,23 @@ To let the energy page use the UPS as a power meter, nothing more is needed: the
 
 1. In Cloudflare: **My Profile → API Tokens → Create Token → Custom**. Permissions: **Account → Cloudflare Tunnel → Edit**. To let Lumina also create DNS records for hostnames, add **Zone → DNS → Edit**.
 2. Copy the **Account ID** (on the account's overview page) and, optionally, the **Zone ID** of your domain.
-3. In Lumina: **Add → Cloudflare**, the token and IDs. Only admins can change hostnames. The Cloudflare module has not been tried against a real account by the author, so test it on something unimportant first.
+3. In Lumina: **Add → Cloudflare**, the token and IDs. Only admins can change hostnames. Cloudflare's own error "Authentication error" means the token lacks a permission, or the Account ID belongs to another account.
+
+What you get, and the extra token permission each part needs (every part works on its own; one that is missing is explained on the card and the rest keeps working):
+
+| Feature | Token permission | Also needs |
+|---|---|---|
+| Tunnel status, alerts, "keeps reconnecting" warning | Account, Cloudflare Tunnel, Edit (Read is enough to look) | |
+| Public hostname checks: DNS, HTTPS answer, speed, certificate days left | none | Zone ID, or type the hostnames in *Other hostnames to check* |
+| DNS records: list, add, edit, proxy on/off, delete | Zone, DNS, Edit (Read to only look) | Zone ID |
+| Traffic: requests, data, cached share, threats for 7 days | Zone, Analytics, Read | Zone ID |
+| Dynamic DNS | Zone, DNS, Edit | Zone ID, an existing A or AAAA record |
+| Access logins and refused-login alert | Account, Access: Audit Logs, Read | Zero Trust switched on |
+
+- **Hostname checks** run every 5 minutes against the hostnames of your tunnels, the tunnel and proxied records of the zone, and the ones you type. Lumina warns 14 days before a certificate expires (critical at 3 days), warns when a name does not resolve or answers with an HTTP 5xx error, and is critical when nothing answers.
+- **Dynamic DNS is off unless you type hostnames** under *Keep these pointed at this network's public IP*. Lumina asks Cloudflare's trace page for this network's public IP and rewrites those A (or AAAA) records when it changes. It never creates a record, and it only works if Lumina's internet traffic leaves through your home connection (a VPN or proxy would give the wrong address).
+- **Reconnect warning:** a restart of `cloudflared` is normal and raises nothing. A warning appears when new connections keep appearing over three or more separate stretches of the last 15 minutes.
+- Anonymous viewers see hostnames, states and traffic, but not record contents, addresses, e-mails or IPs.
 
 ### Network checks (ping, ports, DNS, web)
 

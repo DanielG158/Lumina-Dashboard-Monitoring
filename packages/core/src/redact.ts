@@ -49,7 +49,14 @@ function redactData(moduleId: string, d: Obj): Obj {
     case "uptime-kuma":
       return { ...d, monitors: (d.monitors ?? []).map((m: Obj) => ({ ...m, target: "" })) };
     case "cloudflare":
-      return { ...d, tunnels: (d.tunnels ?? []).map((t: Obj) => ({ ...t, ingress: (t.ingress ?? []).map((r: Obj) => ({ ...r, service: "" })) })) };
+      return {
+        ...d,
+        tunnels: (d.tunnels ?? []).map((t: Obj) => ({ ...t, ingress: (t.ingress ?? []).map((r: Obj) => ({ ...r, service: "" })) })),
+        records: d.records ? (d.records as Obj[]).map((r) => ({ ...r, content: "" })) : d.records,
+        hostnames: (d.hostnames ?? []).map((h: Obj) => ({ ...h, dns: h.dns ? { ...h.dns, addresses: [] } : h.dns })),
+        access: d.access ? { entries: [], denied1h: d.access.denied1h } : d.access,
+        ddns: d.ddns ? { ip: null, hosts: (d.ddns.hosts ?? []).map((h: Obj) => ({ ...h, detail: "" })) } : d.ddns,
+      };
     default:
       return d;
   }

@@ -346,3 +346,7 @@ body.modal-open { overflow: hidden; }
 /* the navy gate of the logo needs to be darker on the light theme */
 :root[data-theme="light"] { --mark-gate: #273962; }
 small.warn { color: var(--warn); }
+.cf-stats { display: flex; gap: 6px 16px; flex-wrap: wrap; font-size: 14px; }
+.subpanel .warn, .meta.warn { color: var(--warn); }
+.subpanel .bad { color: var(--bad); }
+.inline-add select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; font: inherit; }
