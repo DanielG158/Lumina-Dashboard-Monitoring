@@ -257,6 +257,16 @@ each instance card has a **History** section with a metric picker and 1 h / 6 h 
 - **Theme** (header): Dark, Light, Catppuccin, Nord, plus an accent colour. Saved in that browser.
 - Works on phones: the layout stacks and scrolls normally on narrow screens.
 
+### Several hosts and servers
+
+Nothing is limited to one Proxmox node or one iLO.
+
+- **Overview, Proxmox:** with two or more nodes the *Host load* tile shows the average and names the busiest node, and its colour follows the worst node, not the average. A **Hosts** panel lists each node with CPU, RAM and guests running. Stopped guests, and storage rows, name the node they belong to. A stopped guest only shows as a crash if its own host raised the alert, so two hosts that both have a VM 101 are not confused.
+- **Overview, iLO:** with two or more servers the *Server power* tile adds up the draw and names any server that is unhealthy or off. A **Servers** panel lists each one (power, inlet temperature, health). Both iLO modules (Redfish and SNMP) count. With one server nothing changes.
+- **On a small TV** the wall display still fits on one screen; the new panels give way last, after the text shrinks and the alert list is shortened.
+- **Instances:** with four or more instances a bar appears with a search box, one chip per kind of module with its count, a *Needs attention* chip (an instance that is unreachable or has an alert), and *Collapse all* / *Expand all*. Moving a card up or down moves it in the full list even while a filter is on.
+- **Adding:** a new instance starts with a free name ("HPE iLO (4 and 5)", then "... 2") so a second server is one click.
+
 ## 8. Install and operate
 
 ### Install
@@ -393,6 +403,7 @@ The tests live in `tests/` and run with `pnpm test` (everything, needs Chromium)
 - **guest-cost.test.mjs:** how the server's electricity is split between guests, with hand-calculated answers.
 - **security.test.mjs:** setup code, a permission matrix over every API route, cross-site posts, injection payloads, size limits, error leakage, headers, redaction over HTTP and WebSocket, an XSS payload rendered in a real browser, file permissions, no secrets in logs.
 - **cloudflare.test.mjs, cloudflare-ui.test.mjs:** the Cloudflare module against a fake API and local HTTPS servers (certificate dates, HTTP errors, refused connections, reconnect counting, DNS actions, dynamic DNS, missing permissions, redaction), and its card in a real browser as a viewer and as an admin.
+- **multinode-ui.test.mjs:** two Proxmox hosts that both have a VM 101 and two iLOs: the Overview tiles and panels, the crash marker on the right host only, the TV wall fitting at 1920x1080 and 1366x768, the Instances filter bar and the suggested name.
 - **features-ui.test.mjs, snapshot-backup-ui.test.mjs:** the Energy, Maintenance, Overview and Proxmox pages in a real browser, including TV mode fitting at 1920x1080 and 1366x768 with nothing cut off.
 
 Modules were exercised against fake devices speaking their real protocols (including every iLO power command and its safety checks), and the Proxmox, apcupsd, iLO and Uptime Kuma modules have run against real hardware.

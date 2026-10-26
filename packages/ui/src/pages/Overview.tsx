@@ -91,11 +91,13 @@ export function Overview({ kiosk = false, onExit }: { kiosk?: boolean; onExit?: 
     fleet.monitors.length ? `${fleet.monitors.filter((m) => m.status === "up").length}/${fleet.monitors.length} monitors up` : null,
   ].filter(Boolean).join("  ·  ");
 
-  const stoppedUnexpectedly = new Set(active.filter((a) => a.key.startsWith("guest-stopped:")).map((a) => a.key.slice("guest-stopped:".length)));
+  const stoppedUnexpectedly = new Set(active.filter((a) => a.key.startsWith("guest-stopped:")).map((a) => `${a.instanceId}|${a.key.slice("guest-stopped:".length)}`));
   const vms = fleet.guests.filter((g) => g.type === "qemu");
   const cts = fleet.guests.filter((g) => g.type === "lxc");
   const running = (list: typeof fleet.guests) => list.filter((g) => g.status === "running").length;
   const px = fleet.proxmox[0];
+  const manyNodes = fleet.proxmox.length > 1;
+  const busiest = (f: (p: (typeof fleet.proxmox)[number]) => number) => fleet.proxmox.reduce((a, p) => (f(p) > f(a) ? p : a), fleet.proxmox[0]);
   const avg = (f: (p: (typeof fleet.proxmox)[number]) => number) => (fleet.proxmox.length ? fleet.proxmox.reduce((a, p) => a + f(p), 0) / fleet.proxmox.length : 0);
 
   const kpis: Kpi[] = [];
@@ -122,17 +124,48 @@ export function Overview({ kiosk = false, onExit }: { kiosk?: boolean; onExit?: 
   }
   if (px) {
     const cpu = avg((p) => p.cpu), mem = avg((p) => p.mem);
-    kpis.push({ key: "host", icon: "cpu", label: "Host load", value: Math.round(cpu), unit: "% CPU", sub: `RAM ${Math.round(mem)}%`, level: cpu > 90 || mem > 95 ? "critical" : cpu > 75 || mem > 85 ? "warning" : "ok", go: "instances", spark: { instanceId: px.instanceId, metric: `cpu:${px.node}`, unit: "%" } });
-  }
-  if (fleet.ilo) {
-    const i = fleet.ilo;
+    // With several nodes the level follows the worst one: a busy node must not hide behind an idle one.
+    const bc = busiest((p) => p.cpu), bm = busiest((p) => p.mem);
+    const peakCpu = bc.cpu, peakMem = bm.mem;
     kpis.push({
-      key: "power", icon: "bolt", label: "Server power", value: i.powerState === "On" ? (i.powerW ?? "—") : i.powerState ?? "—", unit: i.powerState === "On" ? "W" : undefined,
-      sub: [i.inletC != null ? `inlet ${i.inletC}°C` : null, i.health ? `health ${i.health}` : null].filter(Boolean).join(" · "),
-      level: i.health && i.health !== "OK" ? "critical" : i.powerState !== "On" ? "warning" : i.critical && i.hottestC != null && i.hottestC >= i.critical * 0.9 ? "warning" : "ok",
-      go: "instances", spark: { instanceId: i.instanceId, metric: "power", unit: " W" },
+      key: "host", icon: "cpu", label: manyNodes ? `Host load · ${fleet.proxmox.length} nodes` : "Host load", value: Math.round(cpu), unit: manyNodes ? "% CPU avg" : "% CPU",
+      sub: manyNodes ? `RAM ${Math.round(mem)}% · busiest ${bc.node} ${Math.round(peakCpu)}%` : `RAM ${Math.round(mem)}%`,
+      level: peakCpu > 90 || peakMem > 95 ? "critical" : peakCpu > 75 || peakMem > 85 ? "warning" : "ok", go: "instances",
+      ...(manyNodes ? {} : { spark: { instanceId: px.instanceId, metric: `cpu:${px.node}`, unit: "%" } }),
     });
   }
+
+  if (fleet.servers.length) {
+    const sv = fleet.servers;
+    if (sv.length === 1) {
+      const i = sv[0];
+      kpis.push({
+        key: "power", icon: "bolt", label: "Server power", value: i.powerState === "On" ? (i.powerW ?? "—") : i.powerState ?? "—", unit: i.powerState === "On" ? "W" : undefined,
+        sub: [i.inletC != null ? `inlet ${i.inletC}°C` : null, i.health ? `health ${i.health}` : null].filter(Boolean).join(" · "),
+        level: i.health && i.health !== "OK" ? "critical" : i.powerState !== "On" ? "warning" : i.critical && i.hottestC != null && i.hottestC >= i.critical * 0.9 ? "warning" : "ok",
+        go: "instances", spark: { instanceId: i.instanceId, metric: "power", unit: " W" },
+      });
+    } else {
+      // Several servers: total draw, and the sub line names whichever one is the problem.
+      const on = sv.filter((x) => x.powerState === "On");
+      const watts = on.reduce((a, x) => a + (x.powerW ?? 0), 0);
+      const off = sv.filter((x) => x.powerState !== "On");
+      const sick = sv.filter((x) => x.health && x.health !== "OK");
+      const hot = sv.filter((x) => x.critical && x.hottestC != null && x.hottestC >= x.critical * 0.9);
+      const inlets = sv.map((x) => x.inletC).filter((x): x is number => x != null);
+      kpis.push({
+        key: "power", icon: "bolt", label: `Server power · ${sv.length} servers`, value: on.some((x) => x.powerW != null) ? watts : "—", unit: "W",
+        sub: [
+          sick.length ? `${sick.map((x) => x.instanceId).join(", ")} unhealthy` : null,
+          off.length ? `${off.map((x) => x.instanceId).join(", ")} off` : null,
+          !sick.length && !off.length && inlets.length ? `hottest inlet ${Math.max(...inlets)}°C` : null,
+          !sick.length && !off.length ? "all healthy" : null,
+        ].filter(Boolean).join(" · "),
+        level: sick.length ? "critical" : off.length || hot.length ? "warning" : "ok", go: "instances",
+      });
+    }
+  }
+
   if (fleet.ups) {
     const u = fleet.ups;
     kpis.push({
@@ -178,6 +211,10 @@ export function Overview({ kiosk = false, onExit }: { kiosk?: boolean; onExit?: 
   }
 
   const guests = [...vms, ...cts];
+  const hasIlo4 = L.instances.some((i) => i.moduleId === "ilo4" && i.data);
+  const bareLeft = guests.length === 0 && fleet.monitors.length === 0;
+  // the detailed single-server panel keeps its place when nothing else is on the left; otherwise two or more servers get a compact list
+  const showServers = fleet.servers.length >= 2 ? !(bareLeft && hasIlo4) : fleet.servers.length === 1 && bareLeft && !hasIlo4;
   const monitors = [...fleet.monitors].sort((a, b) => (a.status === "down" ? 0 : a.status === "pending" ? 1 : 2) - (b.status === "down" ? 0 : b.status === "pending" ? 1 : 2) || a.name.localeCompare(b.name));
   const [trim, setTrim] = useState(0);
   const recent = L.alerts.recent.slice(0, RECENT_ROWS[trim]);
@@ -233,7 +270,7 @@ export function Overview({ kiosk = false, onExit }: { kiosk?: boolean; onExit?: 
             const stopped = guests.filter((g) => g.status !== "running");
             const pct = (a: number, b: number) => (b ? (a / b) * 100 : 0);
             // Guests that were stopped on purpose are normal: the bars only turn red for ones that stopped on their own.
-            const crashed = (list: typeof guests) => list.some((g) => g.status !== "running" && stoppedUnexpectedly.has(String(g.vmid)));
+            const crashed = (list: typeof guests) => list.some((g) => g.status !== "running" && stoppedUnexpectedly.has(`${g.instanceId}|${g.vmid}`));
             return (
               <section className="wpanel" style={{ order: oL("guests") }}>
                 <h3>Virtual machines &amp; containers <span className="meta">{running(guests)}/{guests.length} running</span></h3>
@@ -247,12 +284,12 @@ export function Overview({ kiosk = false, onExit }: { kiosk?: boolean; onExit?: 
                       <div className="sub" style={{ marginTop: 8 }}>Not running</div>
                       <div className="chipgrid">
                         {stopped.map((g) => {
-                          const bad = stoppedUnexpectedly.has(String(g.vmid));
+                          const bad = stoppedUnexpectedly.has(`${g.instanceId}|${g.vmid}`);
                           return (
                             <div key={`${g.instanceId}-${g.vmid}`} className={`gchip ${bad ? "bad" : "off"}`} onClick={() => L.go("instances")} title={`${g.name} (${g.type === "qemu" ? "VM" : "CT"} ${g.vmid}) — ${g.status}${bad ? " (stopped unexpectedly)" : ""}`}>
                               <span className={`dot ${bad ? "down" : "unknown"}`} />
                               <span className="n">{g.name}</span>
-                              <span className="id">{g.type === "qemu" ? "VM" : "CT"} {g.vmid}</span>
+                              <span className="id">{g.type === "qemu" ? "VM" : "CT"} {g.vmid}{manyNodes ? ` · ${g.node}` : ""}</span>
                             </div>
                           );
                         })}
@@ -269,7 +306,7 @@ export function Overview({ kiosk = false, onExit }: { kiosk?: boolean; onExit?: 
               <div className="pbody chipgrid">
                 {guests.map((g) => {
                   const up = g.status === "running";
-                  const bad = stoppedUnexpectedly.has(String(g.vmid));
+                  const bad = stoppedUnexpectedly.has(`${g.instanceId}|${g.vmid}`);
                   return (
                     <div key={`${g.instanceId}-${g.vmid}`} className={`gchip ${up ? "" : bad ? "bad" : "off"}`} onClick={() => L.go("instances")}
                       title={`${g.name} (${g.type === "qemu" ? "VM" : "CT"} ${g.vmid}) on ${g.node} — ${g.status}${up ? ` · CPU ${Math.round(g.cpu * 100)}% · RAM ${(g.mem / 1024 ** 3).toFixed(1)}/${(g.maxmem / 1024 ** 3).toFixed(1)} GB` : ""}`}>
@@ -323,13 +360,46 @@ export function Overview({ kiosk = false, onExit }: { kiosk?: boolean; onExit?: 
               </div>
             </section>
           )}
+          {manyNodes && (
+            <section className="wpanel" style={{ order: oL("hosts") }}>
+              <h3>Hosts <span className="meta">{fleet.proxmox.length} nodes</span></h3>
+              <div className="pbody storlist">
+                {[...fleet.proxmox].sort((a, b) => a.node.localeCompare(b.node)).map((p) => {
+                  const mine = fleet.guests.filter((g) => g.instanceId === p.instanceId && g.node === p.node);
+                  const bar = (v: number, warn: number, bad: number) => <span className="bar"><i className={v >= bad ? "bad" : v >= warn ? "warn" : ""} style={{ width: `${Math.min(100, v)}%` }} /></span>;
+                  return (
+                    <div key={`${p.instanceId}-${p.node}`} className="srow hrow" onClick={() => L.go("instances")} style={{ cursor: "pointer" }} title={`${p.node}: CPU ${Math.round(p.cpu)}%, RAM ${Math.round(p.mem)}%`}>
+                      <span className="n">{p.node}</span>
+                      {bar(p.cpu, 75, 90)}<span className="p">{Math.round(p.cpu)}%</span>
+                      {bar(p.mem, 85, 95)}<span className="p">{Math.round(p.mem)}%</span>
+                      <span className="g">{running(mine)}/{mine.length}</span>
+                    </div>
+                  );
+                })}
+                <div className="sub">CPU · RAM · guests running</div>
+              </div>
+            </section>
+          )}
+          {showServers && (
+            <section className="wpanel" style={{ order: oL("servers") }}>
+              <h3>Servers <span className="meta">{fleet.servers.length}</span></h3>
+              <div className="pbody storlist">
+                {fleet.servers.map((v) => (
+                  <div key={v.instanceId} className="vrow" onClick={() => L.go("instances")} style={{ cursor: "pointer" }}>
+                    <span className="n"><span className={`dot ${v.health === "OK" ? "up" : v.health ? "down" : "unknown"}`} style={{ marginRight: 8 }} /><b>{v.instanceId}</b></span>
+                    <span className="sub">{v.powerState ?? "—"}{v.powerW != null ? ` · ${v.powerW} W` : ""}{v.inletC != null ? ` · inlet ${v.inletC}°C` : ""}{v.health && v.health !== "OK" ? ` · ${v.health}` : ""}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
           {fleet.storages.length > 0 && (
             <section className="wpanel" style={{ order: oL("storage") }}>
               <h3>Storage <span className="meta">{fleet.storages.length} volumes</span></h3>
               <div className="pbody storlist">
                 {[...fleet.storages].sort((a, b) => b.pct - a.pct).map((s) => (
                   <div key={`${s.node}-${s.name}`} className="srow" title={`${(s.used / 1024 ** 3).toFixed(0)} of ${(s.total / 1024 ** 3).toFixed(0)} GB`}>
-                    <span className="n">{s.name}</span>
+                    <span className="n">{s.name}{manyNodes && <span className="sub"> · {s.node}</span>}</span>
                     <span className="bar"><i className={s.pct >= 90 ? "bad" : s.pct >= 80 ? "warn" : ""} style={{ width: `${Math.min(100, s.pct)}%` }} /></span>
                     <span className="p">{Math.round(s.pct)}%</span>
                     {(() => { const f = forecastText(forecasts.get(`${s.name}@${s.node}`)); return f && (f.warn || f.text.startsWith("full")) ? <span className="f" style={{ color: f.warn ? "var(--warn)" : "var(--muted)" }}>{f.text}</span> : <span className="f" />; })()}
@@ -357,7 +427,7 @@ export function Overview({ kiosk = false, onExit }: { kiosk?: boolean; onExit?: 
               </div>
             </section>
           )}
-          {guests.length === 0 && monitors.length === 0 && !L.instances.some((i) => i.moduleId === "ilo4" && i.data) && (
+          {guests.length === 0 && monitors.length === 0 && !hasIlo4 && !showServers && !manyNodes && (
             <section className="wpanel"><div className="empty">{L.instances.length ? "Waiting for data…" : L.can.admin ? "Nothing connected yet — open the Instances tab and add a module." : "Nothing is connected yet. An admin can add modules."}</div></section>
           )}
         </div>

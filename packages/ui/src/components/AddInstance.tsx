@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ChecksEditor } from "./ChecksEditor";
+import { useLumina } from "../context";
 import { api, type ConfigField, type ModuleInfo } from "../api";
 
 interface Props {
@@ -20,7 +21,17 @@ function defaults(fields: ConfigField[]): Values {
 export function AddInstance({ modules, editing, onDone, onClose }: Props) {
   const [moduleId, setModuleId] = useState(modules[0]?.id ?? "");
   const mod = modules.find((m) => m.id === moduleId);
-  const [instanceId, setInstanceId] = useState(editing ?? "");
+  const { instances } = useLumina();
+  // A new instance starts with a free name ("iLO 4", then "iLO 4 2", ...) so a second server of the same kind is one click, and the list stays readable.
+  const suggest = (id: string) => {
+    const m = modules.find((x) => x.id === id);
+    if (!m) return "";
+    const taken = new Set(instances.map((i) => i.instanceId.toLowerCase()));
+    if (!taken.has(m.name.toLowerCase())) return m.name;
+    for (let n = 2; ; n++) if (!taken.has(`${m.name} ${n}`.toLowerCase())) return `${m.name} ${n}`;
+  };
+  const [instanceId, setInstanceId] = useState(editing ?? suggest(modules[0]?.id ?? ""));
+  const [named, setNamed] = useState(Boolean(editing));
   const [values, setValues] = useState<Values>(() => defaults(mod?.fields ?? []));
   const [pollSec, setPollSec] = useState("");
   const [loading, setLoading] = useState(Boolean(editing));
@@ -51,6 +62,7 @@ export function AddInstance({ modules, editing, onDone, onClose }: Props) {
 
   function pickModule(id: string) {
     setModuleId(id);
+    if (!named) setInstanceId(suggest(id));
     setValues(defaults(modules.find((m) => m.id === id)?.fields ?? []));
     setError(null);
   }
@@ -108,7 +120,7 @@ export function AddInstance({ modules, editing, onDone, onClose }: Props) {
           </label>
           <label>
             Instance name
-            <input required maxLength={64} value={instanceId} placeholder={mod?.id ?? ""} onChange={(e) => setInstanceId(e.target.value)} />
+            <input required maxLength={64} value={instanceId} placeholder={mod?.id ?? ""} onChange={(e) => { setNamed(true); setInstanceId(e.target.value); }} />
             {editing && instanceId.trim() !== editing && <small>Renaming keeps its history, alerts, schedules and maintenance windows.</small>}
           </label>
           {mod && <div className="full hint">{mod.description}</div>}

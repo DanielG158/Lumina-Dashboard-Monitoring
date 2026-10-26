@@ -10,6 +10,7 @@
 ## What it does
 
 - **Wall display.** The Overview fits one screen with no scrolling at any size, text scales to fill it, and **TV mode** keeps the screen awake. Cards move every 15 seconds to prevent burn-in. If the connection to Lumina drops, the screen greys out and says so instead of showing old numbers.
+- **More than one server.** Two or more Proxmox hosts or iLOs each get their own row on the Overview (load per node, power per server, the node named on every stopped guest and storage volume), and the Instances page gets a search box, filter chips and Collapse/Expand all once you have four or more.
 - **Proxmox.** Nodes, VMs and containers, storage, disks, backup jobs, tasks. Start, stop, reboot, **Snapshot**, **Back up now** and a **Console** link for each guest. Warns when a guest has no recent backup, and forecasts when a storage volume will fill up.
 - **HP iLO 4.** Power, temperatures, fans (with 24-hour charts), power supplies, drives, memory, logs, and power on/off buttons.
 - **Network monitoring.** Ping, TCP, DNS and web checks with latency and packet-loss history, an optional internet speed test, and SNMP link status and traffic for pfSense, OPNsense, OpenWrt and managed switches.

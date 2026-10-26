@@ -24,7 +24,7 @@ export interface BurnInLayout {
 }
 
 const BLOCKS = ["banner", "kpis", "cols"];
-const LEFT = ["guests", "monitors", "storage"];
+const LEFT = ["guests", "hosts", "servers", "monitors", "storage"];
 const RIGHT = ["alerts", "devices", "recent"];
 
 function shuffled<T>(items: T[]): T[] {

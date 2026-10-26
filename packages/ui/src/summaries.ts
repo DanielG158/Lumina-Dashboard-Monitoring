@@ -89,6 +89,17 @@ export interface FleetGuest {
 }
 export interface FleetMonitor { instanceId: string; name: string; type: string; target: string; status: string; responseMs: number | null }
 
+export interface ServerRow {
+  instanceId: string;
+  model: string | null;
+  powerState: string | null;
+  powerW: number | null;
+  health: string | null;
+  inletC: number | null;
+  hottestC: number | null;
+  critical: number | null;
+}
+
 export interface Fleet {
   guests: FleetGuest[];
   monitors: FleetMonitor[];
@@ -97,7 +108,8 @@ export interface Fleet {
   /** Backup freshness across Proxmox guests that are in a backup job or have backups. */
   backups: { tracked: number; fresh: number; stale: number; uncovered: number; maxAgeDays: number; oldestDays: number | null } | null;
   storages: { name: string; node: string; pct: number; used: number; total: number }[];
-  ilo: { instanceId: string; powerState: string | null; powerW: number | null; health: string | null; inletC: number | null; hottestC: number | null; critical: number | null } | null;
+  /** every iLO, whichever module reads it, so two servers are two rows and not one */
+  servers: ServerRow[];
   ups: { instanceId: string; status: string; onBattery: boolean; batteryPct: number | null; runtimeMin: number | null; loadPct: number | null; watts: number | null } | null;
   tunnels: { healthy: number; total: number; instanceId: string } | null;
   online: number;
@@ -105,7 +117,7 @@ export interface Fleet {
 }
 
 export function gather(instances: InstanceUpdate[]): Fleet {
-  const f: Fleet = { guests: [], monitors: [], proxmox: [], worstStorage: null, backups: null, storages: [], ilo: null, ups: null, tunnels: null, online: 0, total: instances.filter((i) => i.enabled).length };
+  const f: Fleet = { guests: [], monitors: [], proxmox: [], worstStorage: null, backups: null, storages: [], servers: [], ups: null, tunnels: null, online: 0, total: instances.filter((i) => i.enabled).length };
   for (const i of instances) {
     if (i.enabled && i.status === "connected") f.online += 1;
     const d = data(i);
@@ -137,20 +149,20 @@ export function gather(instances: InstanceUpdate[]): Fleet {
       }
     } else if (i.moduleId === "uptime-kuma") {
       for (const m of (d.monitors ?? []) as Obj[]) f.monitors.push({ instanceId: i.instanceId, name: m.name, type: m.type, target: m.target, status: m.status, responseMs: m.responseMs });
-    } else if (i.moduleId === "ilo4" && !f.ilo) {
+    } else if (i.moduleId === "ilo4") {
       const temps = (d.temperatures ?? []) as Obj[];
       const hottest = temps.length ? temps.reduce((a, t) => (t.celsius > a.celsius ? t : a)) : null;
-      f.ilo = {
-        instanceId: i.instanceId, powerState: d.powerState ?? null, powerW: d.power?.nowW ?? null, health: d.health ?? null,
+      f.servers.push({
+        instanceId: i.instanceId, model: d.model ?? null, powerState: d.powerState ?? null, powerW: d.power?.nowW ?? null, health: d.health ?? null,
         inletC: temps.find((t) => /inlet/i.test(t.name))?.celsius ?? null, hottestC: hottest?.celsius ?? null, critical: hottest?.criticalC ?? null,
-      };
-    } else if (i.moduleId === "ilo-snmp" && !f.ilo) {
+      });
+    } else if (i.moduleId === "ilo-snmp") {
       const temps = (d.temps ?? []) as Obj[];
       const hottest = temps.length ? temps.reduce((a, t) => (t.celsius > a.celsius ? t : a)) : null;
-      f.ilo = {
-        instanceId: i.instanceId, powerState: "On", powerW: d.powerW ?? null, health: d.overall === "ok" ? "OK" : d.overall === "unknown" ? null : d.overall === "degraded" ? "Warning" : "Critical",
+      f.servers.push({
+        instanceId: i.instanceId, model: d.ilo?.model ?? null, powerState: "On", powerW: d.powerW ?? null, health: d.overall === "ok" ? "OK" : d.overall === "unknown" ? null : d.overall === "degraded" ? "Warning" : "Critical",
         inletC: temps.find((t) => /^Ambient/.test(t.name))?.celsius ?? null, hottestC: hottest?.celsius ?? null, critical: hottest?.limitC ?? null,
-      };
+      });
     } else if (i.moduleId === "apcupsd" && !f.ups) {
       f.ups = {
         instanceId: i.instanceId, status: d.status, onBattery: !!d.onBattery, batteryPct: d.batteryPct ?? null, runtimeMin: d.runtimeMin ?? null,

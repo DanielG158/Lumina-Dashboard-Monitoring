@@ -1,7 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { ReactElement } from "react";
 import { AddInstance } from "../components/AddInstance";
-import { CardShell, type CardProps } from "../components/CardShell";
+import { CardShell, setAllCards, type CardProps } from "../components/CardShell";
 import { CloudflareCard } from "../components/CloudflareCard";
 import { IloCard } from "../components/IloCard";
 import { KumaCard } from "../components/KumaCard";
@@ -47,6 +47,17 @@ export function InstancesPage({ adding, editing, onClose, onDone }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
   const L = useLumina();
+  const [q, setQ] = useState("");
+  const [kind, setKind] = useState("all");
+  const [problems, setProblems] = useState(false);
+  const modName = (id: string) => L.modules.find((m) => m.id === id)?.name ?? id;
+  const kinds = [...new Set(L.instances.map((i) => i.moduleId))];
+  const sick = (i: (typeof L.instances)[number]) => i.enabled && (i.status !== "connected" || L.alertsFor(i.instanceId).length > 0);
+  const shown = L.instances.filter((i) =>
+    (kind === "all" || i.moduleId === kind) &&
+    (!problems || sick(i)) &&
+    (!q.trim() || `${i.instanceId} ${modName(i.moduleId)}`.toLowerCase().includes(q.trim().toLowerCase())));
+  const filtering = q.trim() !== "" || kind !== "all" || problems;
   return (
     <div>
       <div className="page-title">
@@ -71,7 +82,25 @@ export function InstancesPage({ adding, editing, onClose, onDone }: Props) {
         </div>
       )}
 
-      {L.instances.map((i) => {
+      {L.instances.length >= 4 && (
+        <div className="filterbar" role="search">
+          <input type="search" className="field" placeholder="Find an instance…" aria-label="Find an instance" value={q} onChange={(e) => setQ(e.target.value)} />
+          <div className="chips">
+            <button className={`chip ${kind === "all" ? "on" : ""}`} onClick={() => setKind("all")}>All {L.instances.length}</button>
+            {kinds.length > 1 && kinds.map((k) => (
+              <button key={k} className={`chip ${kind === k ? "on" : ""}`} onClick={() => setKind(kind === k ? "all" : k)}>{modName(k)} {L.instances.filter((i) => i.moduleId === k).length}</button>
+            ))}
+            <button className={`chip ${problems ? "on" : ""}`} onClick={() => setProblems(!problems)}>Needs attention {L.instances.filter(sick).length}</button>
+          </div>
+          <span className="grow" />
+          <button className="btn sm" onClick={() => setAllCards(false)}>Collapse all</button>
+          <button className="btn sm" onClick={() => setAllCards(true)}>Expand all</button>
+        </div>
+      )}
+      {filtering && <div className="sub" style={{ margin: "0 0 8px" }}>Showing {shown.length} of {L.instances.length}. Moving a card up or down moves it in the full list.{" "}<button className="btn sm" onClick={() => { setQ(""); setKind("all"); setProblems(false); }}>Show everything</button></div>}
+      {filtering && shown.length === 0 && <div className="panel empty">Nothing matches.</div>}
+
+      {shown.map((i) => {
         const Card = CARDS[i.moduleId];
         return Card ? (
           <Card key={i.instanceId} instance={i} />

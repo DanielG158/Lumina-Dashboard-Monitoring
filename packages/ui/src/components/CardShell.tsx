@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api, type InstanceUpdate } from "../api";
 import { useLumina } from "../context";
 import { ago, every, summarize } from "../summaries";
@@ -9,10 +9,22 @@ export interface CardProps {
   instance: InstanceUpdate;
 }
 
+/** The Instances page can open or close every card at once; each card keeps its own choice in this browser. */
+export const setAllCards = (open: boolean) => window.dispatchEvent(new CustomEvent("lumina:cards", { detail: open }));
+
 function useOpen(key: string): [boolean, () => void] {
   const [open, setOpen] = useState(() => {
     try { return localStorage.getItem(key) === "1"; } catch { return false; }
   });
+  useEffect(() => {
+    const all = (e: Event) => {
+      const o = Boolean((e as CustomEvent<boolean>).detail);
+      try { localStorage.setItem(key, o ? "1" : "0"); } catch { /* storage unavailable */ }
+      setOpen(o);
+    };
+    window.addEventListener("lumina:cards", all);
+    return () => window.removeEventListener("lumina:cards", all);
+  }, [key]);
   return [open, () => setOpen((o) => {
     try { localStorage.setItem(key, o ? "0" : "1"); } catch { /* storage unavailable */ }
     return !o;
