@@ -41,23 +41,43 @@ export const connectionFields = [
   { key: "privKey", label: "Encryption key (version 3)", type: "password" as const },
 ];
 
+/** SNMPv3 keeps a clock for the device. After the device restarts, its answer says "outside the time window" until a new session learns the clock again. */
+export const isStaleClock = (e: unknown): boolean => /time ?window|engineboots|enginetime/i.test(e instanceof Error ? e.message : String(e));
+
 /** A session to the device plus small promise helpers, and the helper to look at a value. */
 export function openSession(config: ConnectionConfig, timeoutMs = 4000, retries = 1) {
   const opts = { port: config.port, timeout: timeoutMs, retries, version: config.version === "3" ? snmp.Version3 : snmp.Version2c };
-  const session: Obj =
-    config.version === "3"
-      ? snmp.createV3Session(
-          config.host,
-          { name: config.user, level: config.authProtocol === "none" ? snmp.SecurityLevel.noAuthNoPriv : config.privProtocol === "none" ? snmp.SecurityLevel.authNoPriv : snmp.SecurityLevel.authPriv,
-            authProtocol: snmp.AuthProtocols[config.authProtocol], authKey: config.authKey, privProtocol: snmp.PrivProtocols[config.privProtocol], privKey: config.privKey },
-          opts,
-        )
-      : snmp.createSession(config.host, config.community, opts);
-  session.on("error", () => undefined);
-  const get = (oids: string[]) => new Promise<Obj[]>((resolve, reject) => session.get(oids, (e: Error | null, vbs: Obj[]) => (e ? reject(e) : resolve(vbs))));
-  const table = (oid: string, columns: number[]) => new Promise<Obj>((resolve, reject) => session.tableColumns(oid, columns, 20, (e: Error | null, t: Obj) => (e ? reject(e) : resolve(t))));
+  const make = (): Obj => {
+    const s: Obj =
+      config.version === "3"
+        ? snmp.createV3Session(
+            config.host,
+            { name: config.user, level: config.authProtocol === "none" ? snmp.SecurityLevel.noAuthNoPriv : config.privProtocol === "none" ? snmp.SecurityLevel.authNoPriv : snmp.SecurityLevel.authPriv,
+              authProtocol: snmp.AuthProtocols[config.authProtocol], authKey: config.authKey, privProtocol: snmp.PrivProtocols[config.privProtocol], privKey: config.privKey },
+            opts,
+          )
+        : snmp.createSession(config.host, config.community, opts);
+    s.on("error", () => undefined);
+    return s;
+  };
+  let session = make();
+  // A stale device clock is fixed by starting a fresh session, once, and asking again.
+  const run = <T>(call: (s: Obj, cb: (e: Error | null, v: T) => void) => void) =>
+    new Promise<T>((resolve, reject) => {
+      const attempt = (again: boolean) => call(session, (e, v) => {
+        if (e && again && config.version === "3" && isStaleClock(e)) {
+          try { session.close(); } catch { /* already closed */ }
+          session = make();
+          return attempt(false);
+        }
+        return e ? reject(e) : resolve(v);
+      });
+      attempt(true);
+    });
+  const get = (oids: string[]) => run<Obj[]>((s, cb) => s.get(oids, cb));
+  const table = (oid: string, columns: number[]) => run<Obj>((s, cb) => s.tableColumns(oid, columns, 20, cb));
   const val = (vb: Obj | undefined) => (vb && !snmp.isVarbindError(vb) ? vb.value : undefined);
-  return { session, get, table, val, close: () => { try { session.close(); } catch { /* already closed */ } } };
+  return { get session() { return session; }, get, table, val, close: () => { try { session.close(); } catch { /* already closed */ } } };
 }
 
 const ConfigSchema = z
@@ -249,7 +269,7 @@ export default defineModule<Config>({
   async create(config) {
     const watch = new Set(watchList(config.watch).map((x) => x.toLowerCase()));
     const hide = new RegExp(config.hide);
-    const { session, get, table, val } = openSession(config);
+    const { get, table, val, close } = openSession(config);
 
     const prev = new Map<number, { t: number; in: bigint | null; out: bigint | null; err: bigint; bits: 32 | 64 }>();
     let healthy = false;
@@ -362,7 +382,7 @@ export default defineModule<Config>({
         },
       ],
       async dispose() {
-        try { session.close(); } catch { /* already closed */ }
+        close();
       },
     };
   },

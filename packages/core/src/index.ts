@@ -1,3 +1,4 @@
+import { uptime as osUptime } from "node:os";
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import rateLimit from "@fastify/rate-limit";
@@ -117,7 +118,7 @@ registry.onPoll = (info) => {
     if (sp?.at) store.speed.add({ instanceId: info.instanceId, ts: Math.floor(sp.at / 1000), down: sp.downMbps, up: sp.upMbps, latency: sp.latencyMs, error: sp.error });
   }
   const derived = ok && info.moduleId === "proxmox" ? forecastConditions(forecasts(), info.instanceId, settings().forecastWarnDays) : [];
-  void engine.evaluate(info.instanceId, { conditions: info.conditions ? [...info.conditions, ...derived] : null, down: info.status === "disconnected", error: info.error, unknown: info.unknown });
+  void engine.evaluate(info.instanceId, { conditions: info.conditions ? [...info.conditions, ...derived] : null, down: info.status === "disconnected" && Date.now() - startedAt >= startupGraceMs, error: info.error, unknown: info.unknown });
 };
 registry.onRemoved = (id) => {
   engine.clearInstance(id);
@@ -180,6 +181,10 @@ app.addHook("onRequest", async (req, reply) => {
 const operator = requireRole("operator");
 const admin = requireRole("admin");
 
+// Right after the machine boots, the network and the DNS server may not be up yet; nothing is called unreachable until it had a chance.
+// The first minutes after a boot are given 120 s of grace. LUMINA_STARTUP_GRACE_SECONDS overrides it (0 switches it off).
+const startedAt = Date.now();
+const startupGraceMs = Math.max(0, Number(process.env.LUMINA_STARTUP_GRACE_SECONDS ?? (osUptime() < 600 ? 120 : 0))) * 1000;
 app.get("/health", async () => ({ ok: true, uptime: Math.round(process.uptime()) }));
 
 registerAuthRoutes(app, store, auth, audit, () => settings().publicView, openAccess, { check: checkSetupCode, clear: clearSetupCode, required: () => store.users.count() === 0 && setupCodeRequired() });

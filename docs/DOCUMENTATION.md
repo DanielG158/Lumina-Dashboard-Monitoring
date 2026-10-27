@@ -335,6 +335,7 @@ Most settings are in the UI. Environment variables (e.g. in a systemd drop-in) o
 | `LUMINA_UI_DIR` | Where the built UI is | `packages/ui/dist` |
 | `LUMINA_TRUST_PROXY` | `1` to trust forwarded client addresses (behind a reverse proxy or tunnel) | off |
 | `LUMINA_RESTART` | `1` if something restarts Lumina when it exits (enables the Restart button) | set by systemd |
+| `LUMINA_STARTUP_GRACE_SECONDS` | After a boot, how long nothing is called "unreachable" (the network may not be up yet). 0 switches it off | 120 when the machine booted less than 10 minutes ago, otherwise 0 |
 | `LOG_LEVEL` | `info`, `warn`, `debug` | `info` |
 
 Settings stored in the database (Settings, General): public viewing (on), sign-in timeout (480 min), alert confirmation (2 polls), history length (14 days), storage-forecast warning (14 days). Electricity settings are stored separately (Energy, Prices and settings).
@@ -381,6 +382,8 @@ Realtime: Socket.io on the same address sends `snapshot`, `module:update`, `aler
 
 | Symptom | Cause and fix |
 |---|---|
+| Many devices "unreachable" at the same minute, then fine again | Lumina's own network was gone: the router (often also the DNS server) restarted, or the machine Lumina runs on was just booted. Errors like `EAI_AGAIN` (DNS), `EHOSTUNREACH` and `ENETUNREACH` point at this. For two minutes after a boot nothing is called unreachable. For a router restart, check its uptime |
+| **SNMP version 3: "outside the time window"** | The device restarted and its clock no longer matches the session's. Lumina starts a fresh session by itself; on an older copy, restart Lumina once |
 | Card says "Can't reach this service" | The card shows the real error (admins). Check the address and credentials with Edit |
 | **APCUPS: connection refused** on a different subnet | A firewall rejected it; allow Lumina's IP to the UPS host on TCP 3551. On the UPS host set `NETSERVER on` and `NISIP` to an address the dashboard can reach. If `NISIP` is its own IP, give that host a DHCP reservation |
 | **Uptime Kuma: "wrong version number"** | The URL says `https://` but the port is plain HTTP; use `http://` |

@@ -15,7 +15,7 @@ const esc = (s) => s.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "
 let failed = 0;
 for (const f of files) {
   console.log(`\n=== ${f}`);
-  const r = spawnSync("node", [join(dir, f)], { encoding: "utf8", timeout: 10 * 60_000, maxBuffer: 64 * 1024 * 1024 });
+  const r = spawnSync("node", [join(dir, f)], { env: { ...process.env, LUMINA_STARTUP_GRACE_SECONDS: process.env.LUMINA_STARTUP_GRACE_SECONDS ?? "0" }, encoding: "utf8", timeout: 10 * 60_000, maxBuffer: 64 * 1024 * 1024 });
   const out = `${r.stdout ?? ""}${r.stderr ?? ""}`;
   process.stdout.write(out);
   if (r.status !== 0) {
