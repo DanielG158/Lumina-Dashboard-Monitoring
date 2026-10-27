@@ -48,12 +48,17 @@ export const requireRole = (min: "operator" | "admin") => async (req: FastifyReq
 class Throttle {
   private hits = new Map<string, { count: number; first: number; lockedUntil: number }>();
   constructor(private max: number, private windowMs: number, private lockMs: number) {}
+  private prune(now: number) {
+    if (this.hits.size < 1000) return;
+    for (const [k, h] of this.hits) if (h.lockedUntil <= now && now - h.first > this.windowMs) this.hits.delete(k);
+  }
   locked(key: string): number {
     const h = this.hits.get(key);
     return h && h.lockedUntil > Date.now() ? Math.ceil((h.lockedUntil - Date.now()) / 1000) : 0;
   }
   fail(key: string) {
     const now = Date.now();
+    this.prune(now);
     const h = this.hits.get(key);
     if (!h || now - h.first > this.windowMs) return void this.hits.set(key, { count: 1, first: now, lockedUntil: 0 });
     h.count += 1;
@@ -130,11 +135,14 @@ export function registerAuthRoutes(
     return { setupRequired: store.users.count() === 0, setupCodeRequired: setupCode.required(), openAccess: openAccess(), publicView: publicView(), siteName: store.settings.get<string>("siteName", ""), user: session ? publicUser(session.user) : null };
   });
 
-  app.post("/api/auth/setup", async (req, reply) => {
+  app.post("/api/auth/setup", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (req, reply) => {
     if (store.users.count() > 0) return reply.code(409).send({ error: "Setup is already complete" });
     const body = z.object({ username: Username, password: Password, setupCode: z.string().optional() }).parse(req.body);
     if (!setupCode.check(body.setupCode)) return reply.code(403).send({ error: "Wrong setup code" });
-    const id = store.users.create(body.username, await hashPassword(body.password), "admin");
+    const hash = await hashPassword(body.password);
+    // Hashing takes a moment; a second request may have created the first admin meanwhile.
+    if (store.users.count() > 0) return reply.code(409).send({ error: "Setup is already complete" });
+    const id = store.users.create(body.username, hash, "admin");
     const user = store.users.byId(id)!;
     setupCode.clear();
     audit(req, "setup", body.username, "first admin created", body.username);

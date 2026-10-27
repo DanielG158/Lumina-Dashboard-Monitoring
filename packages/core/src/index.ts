@@ -79,14 +79,18 @@ const auth = createAuth(store, () => settings().sessionIdleMinutes);
 const io = new SocketServer(app.server, {
   allowRequest: (req, cb) => {
     const origin = req.headers.origin;
-    cb(null, !origin || new URL(origin).host === req.headers.host);
+    let same = !origin;
+    if (origin) {
+      try { same = new URL(origin).host === req.headers.host; } catch { same = false; }
+    }
+    cb(null, same);
   },
 });
 io.use((socket, next) => {
   const session = auth.authenticate(socket.request.headers.cookie);
   if (session) socket.data.user = session.user;
   else if (!settings().publicView && !openAccess()) return next(new Error("unauthorized"));
-  void socket.join(session || openAccess() ? "auth" : "anon");
+  void socket.join((session || openAccess()) ? "auth" : "anon");
   next();
 });
 app.addHook("onClose", (_, done) => void io.close(() => done()));
