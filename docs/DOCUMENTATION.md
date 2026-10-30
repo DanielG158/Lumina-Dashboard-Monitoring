@@ -93,7 +93,7 @@ commands are never retried.
 | Module | Alerts | Chart metrics |
 |---|---|---|
 | Proxmox | node offline, node memory over 95%, quorum lost, storage over 90% / 97% or unavailable, disk SMART failing, SSD worn out, a guest that was running stops unexpectedly, backup failed or warned in the last day | CPU, memory and root disk per node, running/total guests, storage use |
-| iLO | server health not OK, powered off, CPU/memory health, temperature at 90% / 100% of its limit, fan or PSU fault, RAID controller or drive fault or over 55 degrees, a RAID volume that is degraded, failed or rebuilding (with the percentage when the iLO gives one), DIMM fault, iLO self-test failed, warning/critical hardware log entries in the last 3 days | power draw, hottest and inlet temperature, average fan speed, hottest drive |
+| iLO | server health not OK, powered off, CPU/memory health, temperature at 90% / 100% of its limit, fan or PSU fault, RAID controller or drive fault or over 55 degrees, a RAID volume that is degraded, failed or rebuilding, DIMM fault, iLO self-test failed, warning/critical hardware log entries in the last 3 days | power draw, hottest and inlet temperature, average fan speed, hottest drive |
 | apcupsd | communication lost, on battery, battery low, replace battery, load 85% or more, self-test failed | load, battery, runtime, input voltage, estimated watts |
 | Uptime Kuma | monitor down, certificate expiring or expired | monitors up/down, average and per-monitor response time |
 | Cloudflare | tunnel down, degraded or reconnecting again and again; a hostname not resolving, answering with HTTP 5xx or not answering; a certificate expiring (14 and 3 days); dynamic DNS failing; 10 or more refused Access logins in an hour | healthy/total tunnels, connections per tunnel, hostnames up, days until the soonest certificate expires, refused Access logins |
@@ -110,6 +110,8 @@ Every instance also gets an **unreachable** alert after 3 failed polls in a row.
 Notification channels (Settings, Notifications, admin only): **Email (SMTP)**, **Discord**, **Slack**, **Telegram**, **ntfy** (push to the ntfy phone app,
 iOS and Android), and a **generic webhook** (JSON). Each channel has a minimum severity (everything, warnings and up, critical only),
 a "Send test" button, and shows its last error. Webhook URLs and tokens are stored encrypted and never sent back to the browser.
+
+**RAID rebuilds on iLO 4.** The iLO's Redfish API only says "Warning" for a volume that is rebuilding. When a volume is not healthy, Lumina asks the iLO's own web page data (`/json/health_drives`) for the real status and shows "Degraded (rebuilding)" or "Degraded (ready to rebuild)". This opens one login session on the iLO (with the same account), reuses it, and closes it when the instance stops; if it cannot be opened, the volume is simply shown as "Degraded". No percentage is available.
 
 **Email.** Fields: SMTP server, port, security (`starttls` default, `tls` or `none`), optional username and password, from address, one or more
 recipients, the daily reminder time, an optional link to Lumina and whether to check the server certificate. A new problem is mailed as soon as

@@ -43,7 +43,7 @@ export function parseLogicalDrive(l: Obj, fallbackName: string): LogicalDrive {
   const given = String(l.LogicalDriveName || o.LogicalDriveName || l.Name || "");
   const num = l.LogicalDriveNumber ?? o.LogicalDriveNumber;
   // A volume nobody named is labelled with its serial-like id; the iLO's own pages call it "Logical Drive 01".
-  const name = given && !/^(?=.*\d)[0-9a-z]{16,}$/i.test(given) ? given : typeof num === "number" ? `Logical Drive ${String(num).padStart(2, "0")}` : given || fallbackName;
+  const name = given && !/^(?=.*\d)[0-9A-Z ]{16,}$/.test(given) ? given : typeof num === "number" ? `Logical Drive ${String(num).padStart(2, "0")}` : given || fallbackName;
   return {
     name,
     raid: raid === null ? null : /^\d+$/.test(String(raid)) ? `RAID ${raid}` : String(raid),
@@ -55,6 +55,24 @@ export function parseLogicalDrive(l: Obj, fallbackName: string): LogicalDrive {
     percent: pct ? pct[1] : null,
     reasons,
   };
+}
+
+/**
+ * Redfish says only "Warning" for a volume that is rebuilding; the iLO's own web page (/json/health_drives) says LOG_REBUILDING.
+ * Volumes are matched by name, then by position, and only volumes that Redfish already calls unhealthy are touched.
+ */
+export function applyWebStatus(logical: LogicalDrive[], web: Obj | null | undefined): LogicalDrive[] {
+  const theirs: Obj[] = ((web?.log_drive_arrays ?? []) as Obj[]).flatMap((a) => (a.logical_drives ?? []) as Obj[]);
+  if (!theirs.length) return logical;
+  return logical.map((l, i) => {
+    if (l.health === "OK" || l.health === "Ok") return l;
+    const w = theirs.find((x) => String(x.name) === l.name) ?? (theirs.length === logical.length ? theirs[i] : undefined);
+    const st = String(w?.log_status ?? "");
+    if (!st) return l;
+    if (/READY_FOR_REBUILD/i.test(st)) return { ...l, state: "Degraded (ready to rebuild)" };
+    if (/REBUILD|RECOVER/i.test(st)) return { ...l, rebuilding: true, state: "Degraded (rebuilding)" };
+    return l;
+  });
 }
 
 /** The iLO's own breakdown of what makes the server "Warning" or "Critical" (Oem AggregateHealthStatus). */
@@ -140,6 +158,49 @@ export default defineModule<Config>({
       });
       chain = run.catch(() => undefined);
       return run;
+    }
+
+    // The web page's JSON needs a login session. One is opened only when a volume is not healthy, kept for the next checks,
+    // and closed when the instance stops. Any failure just leaves the status as Redfish reported it.
+    let webKey: string | null = null;
+    let webSession: string | null = null;
+    const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+    const rawCall = (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) =>
+      httpRequestRaw(`${base}${path}`, { method, body, headers, verifyTls: config.verifyTls, fingerprint: config.fingerprint, timeoutMs: 15_000 });
+    async function webLogin(): Promise<boolean> {
+      const res = await rawCall("POST", "/redfish/v1/Sessions/", { UserName: config.username, Password: config.password });
+      const token = first(res.headers["x-auth-token"]);
+      if (res.status >= 300 || !token) return false;
+      webKey = token;
+      const loc = first(res.headers.location);
+      try { webSession = loc ? new URL(loc, base).pathname : null; } catch { webSession = null; }
+      return true;
+    }
+    async function webJson(path: string): Promise<Obj | null> {
+      try {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          if (!webKey && !(await webLogin())) return null;
+          const res = await rawCall("GET", path, undefined, { cookie: `sessionKey=${webKey}` });
+          if (res.status === 200) {
+            try { return JSON.parse(res.body) as Obj; } catch { /* not JSON: treat like an expired session */ }
+          }
+          webKey = null;
+          webSession = null;
+        }
+      } catch { /* the page is optional */ }
+      return null;
+    }
+    function web(path: string): Promise<Obj | null> {
+      const run = chain.then(() => webJson(path));
+      chain = run.catch(() => undefined);
+      return run;
+    }
+    async function webLogout() {
+      const path = webSession;
+      const key = webKey;
+      webKey = null;
+      webSession = null;
+      if (path && key) { try { await chain.then(() => rawCall("DELETE", path, undefined, { "x-auth-token": key })); } catch { /* it expires by itself */ } }
     }
 
     let lastPowerState: string | null = null;
@@ -247,7 +308,9 @@ export default defineModule<Config>({
               });
             }
           }
-          return { health: root.Status?.Health ?? null, controllers, logical, drives };
+          const unhealthy = logical.some((l) => l.health !== null && l.health !== "OK" && l.health !== "Ok" && !l.rebuilding);
+          const volumes = unhealthy ? applyWebStatus(logical, await web("/json/health_drives")) : logical;
+          return { health: root.Status?.Health ?? null, controllers, logical: volumes, drives };
         },
       },
       {
@@ -548,6 +611,7 @@ export default defineModule<Config>({
       ],
       async dispose() {
         disposed = true;
+        await webLogout();
       },
     };
   },
