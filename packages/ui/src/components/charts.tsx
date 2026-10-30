@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
+import { RemoteView } from "../context";
 import { bitrate, mbps } from "../format";
 import { Section } from "./Section";
 import { UnitToggle, useSpeedUnit } from "./UnitToggle";
@@ -12,8 +13,9 @@ export function useMetrics(instanceId: string, keys: string[], range: Range, ref
   const [series, setSeries] = useState<Record<string, Point[]>>({});
   const [error, setError] = useState<string | null>(null);
   const k = keys.join(",");
+  const remote = useContext(RemoteView);
   useEffect(() => {
-    if (!k) return;
+    if (!k || remote) return;
     let alive = true;
     const load = () =>
       api.metrics(instanceId, k.split(","), range)
@@ -22,7 +24,7 @@ export function useMetrics(instanceId: string, keys: string[], range: Range, ref
     void load();
     const t = setInterval(load, refreshMs);
     return () => { alive = false; clearInterval(t); };
-  }, [instanceId, k, range, refreshMs]);
+  }, [instanceId, k, range, refreshMs, remote]);
   return { series, error };
 }
 

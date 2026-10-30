@@ -360,3 +360,7 @@ small.warn { color: var(--warn); }
 .hrow .g { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 .vrow { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.6fr); gap: 10px; align-items: center; font-size: 0.92em; }
 .vrow .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* the devices of another Lumina, drawn inside its card */
+.remote-devices { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.remote-devices > .panel { margin: 0; border-left: 3px solid var(--accent); }

@@ -193,10 +193,10 @@ It follows the protocol that the open-source project [TP-Link-Archer-C6U](https:
 
 To see an office or a second home from this one without a VPN session:
 
-1. On the **other** Lumina: **Settings → Access tokens → New token**. Copy it; it is shown once.
+1. On the **other** Lumina: **Settings → Access tokens → New token**. Tick **Full detail** if you want to see each of its devices here like on that Lumina (otherwise you get a summary). Copy the token; it is shown once.
 2. On **this** Lumina: **Add → Another Lumina**. Its address, a name for its alerts (for example "Office"), and the token.
 
-You see its devices and alerts here, and its alerts are raised here too, so your notifications cover both. The token is read-only and sees only what an anonymous viewer sees. This Lumina must be able to reach the other one: over a VPN, a Cloudflare Tunnel, or a reverse proxy with HTTPS. Do not forward a plain HTTP port to the internet; if you expose it, switch off public viewing on that Lumina and rely on the token.
+You see its devices and alerts here, and its alerts are raised here too, so your notifications cover both. A normal token is read-only and sees only what an anonymous viewer sees. A **Full detail** token is still read-only but sees what a signed-in user sees (drives, guests, addresses, serial numbers, logs), so each device is drawn here with its own card; only create one for a Lumina you trust. The detail is not shown to anonymous viewers of this Lumina. This Lumina must be able to reach the other one: over a VPN, a Cloudflare Tunnel, or a reverse proxy with HTTPS. Do not forward a plain HTTP port to the internet; if you expose it, switch off public viewing on that Lumina and rely on the token.
 
 ## Notifications
 

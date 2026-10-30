@@ -30,6 +30,9 @@ export interface Lumina {
 
 export const LuminaContext = createContext<Lumina | null>(null);
 
+/** True inside a card that shows a device of another Lumina: it has no local history, and nothing on it can be changed from here. */
+export const RemoteView = createContext(false);
+
 export function useLumina(): Lumina {
   const ctx = useContext(LuminaContext);
   if (!ctx) throw new Error("useLumina must be used inside <LuminaContext.Provider>");

@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import type { ReactElement } from "react";
 import { AddInstance } from "../components/AddInstance";
 import { CardShell, setAllCards, type CardProps } from "../components/CardShell";
 import { CloudflareCard } from "../components/CloudflareCard";
@@ -12,10 +11,11 @@ import { IloSnmpCard } from "../components/IloSnmpCard";
 import { OmadaCard } from "../components/OmadaCard";
 import { SnmpCard } from "../components/SnmpCard";
 import { RemoteCard } from "../components/RemoteCard";
+import { CARDS } from "../components/cards";
 import { UpsCard } from "../components/UpsCard";
 import { useLumina } from "../context";
 
-const CARDS: Record<string, (props: CardProps) => ReactElement> = {
+Object.assign(CARDS, {
   proxmox: ProxmoxCard,
   apcupsd: UpsCard,
   ilo4: IloCard,
@@ -27,7 +27,7 @@ const CARDS: Record<string, (props: CardProps) => ReactElement> = {
   snmp: SnmpCard,
   omada: OmadaCard,
   "tplink-router": TplinkRouterCard,
-};
+});
 
 interface Props {
   adding: boolean;

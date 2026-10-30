@@ -77,7 +77,7 @@ const src = ["index.ts", "auth.ts"].map((f) => readFileSync(`${ROOT}/packages/co
 const routes = [...src.matchAll(/app\.(get|post|put|delete)\(\s*"([^"]+)"(?:\s*,\s*\{([^}]*)\})?/g)].map((m) => ({ method: m[1].toUpperCase(), path: m[2], opts: m[3] ?? "" }))
   .filter((x) => x.path.startsWith("/api/"));
 const PUBLIC = new Set(["/api/auth/status", "/api/auth/login", "/api/auth/setup", "/api/auth/restore", "/api/auth/skip-setup"]);
-const ANON_READ = [/^\/api\/modules$/, /^\/api\/instances$/, /^\/api\/instances\/[^/]+\/metrics$/, /^\/api\/instances\/[^/]+\/metric-keys$/, /^\/api\/alerts$/, /^\/api\/alerts\/history$/, /^\/api\/speedtests$/, /^\/api\/maintenance$/, /^\/api\/energy$/, /^\/api\/forecast$/];
+const ANON_READ = [/^\/api\/modules$/, /^\/api\/instances$/, /^\/api\/token-info$/, /^\/api\/instances\/[^/]+\/metrics$/, /^\/api\/instances\/[^/]+\/metric-keys$/, /^\/api\/alerts$/, /^\/api\/alerts\/history$/, /^\/api\/speedtests$/, /^\/api\/maintenance$/, /^\/api\/energy$/, /^\/api\/forecast$/];
 let matrixFail = 0, tested = 0;
 for (const rt of routes) {
   if (PUBLIC.has(rt.path) || rt.path === "/api/auth/logout") continue; // logout would end the operator's own session mid-test

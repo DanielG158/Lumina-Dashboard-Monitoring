@@ -36,6 +36,8 @@ function redactData(moduleId: string, d: Obj): Obj {
         logs: { iml: null, iel: null },
         warnings: [],
       };
+    case "lumina":
+      return { ...d, remote: undefined, detailed: false };
     case "netcheck":
       return { ...d, targets: (d.targets ?? []).map((t: Obj) => ({ ...t, target: "" })) };
     case "omada":

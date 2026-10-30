@@ -141,7 +141,9 @@ app.setErrorHandler((err: Error & { statusCode?: number; issues?: { path: (strin
 });
 
 // Read-only data that anonymous visitors may fetch while public viewing is on. Everything else needs a signed-in account.
-const ANONYMOUS_READS = [/^\/api\/modules$/, /^\/api\/instances$/, /^\/api\/instances\/[^/]+\/metrics$/, /^\/api\/instances\/[^/]+\/metric-keys$/, /^\/api\/alerts$/, /^\/api\/alerts\/history$/, /^\/api\/speedtests$/, /^\/api\/maintenance$/, /^\/api\/energy$/, /^\/api\/forecast$/];
+/** requests made with an access token that was created with "full detail" */
+const fullDetail = new WeakSet<FastifyRequest>();
+const ANONYMOUS_READS = [/^\/api\/modules$/, /^\/api\/instances$/, /^\/api\/token-info$/, /^\/api\/instances\/[^/]+\/metrics$/, /^\/api\/instances\/[^/]+\/metric-keys$/, /^\/api\/alerts$/, /^\/api\/alerts\/history$/, /^\/api\/speedtests$/, /^\/api\/maintenance$/, /^\/api\/energy$/, /^\/api\/forecast$/];
 
 app.addHook("onRequest", async (req, reply) => {
   if (req.url.startsWith("/api/")) reply.header("Cache-Control", "no-store");
@@ -170,16 +172,18 @@ app.addHook("onRequest", async (req, reply) => {
     req.user = OPEN_USER;
     return;
   }
-  if (req.method === "GET" && settings().publicView && ANONYMOUS_READS.some((re) => re.test(path))) return;
-  // Another Lumina reading this one: a token allows exactly what anonymous viewing allows, even when public viewing is off.
+  // Another Lumina reading this one: a token allows what anonymous viewing allows (or, made with "full detail", what a signed-in user sees),
+  // even when public viewing is off. It is looked at first, so a valid token is recognised when public viewing is on as well.
   const bearer = /^Bearer (lum_[A-Za-z0-9_-]{20,100})$/.exec(String(req.headers.authorization ?? ""))?.[1];
   if (bearer && req.method === "GET" && ANONYMOUS_READS.some((re) => re.test(path))) {
     const t = store.tokens.find(sha256(bearer));
     if (t) {
+      if (t.detail) fullDetail.add(req);
       if (!t.lastUsed || Date.now() / 1000 - t.lastUsed > 60) store.tokens.touch(t.id);
       return;
     }
   }
+  if (req.method === "GET" && settings().publicView && ANONYMOUS_READS.some((re) => re.test(path))) return;
   return reply.code(401).send({ error: "Sign in to do this" });
 });
 
@@ -207,7 +211,9 @@ app.post("/api/auth/skip-setup", { config: { rateLimit: { max: 10, timeWindow: "
 // ---- modules & instances ---------------------------------------------------------------------------------------
 
 app.get("/api/modules", async () => registry.list());
-app.get("/api/instances", async (req) => registry.snapshot(!req.user));
+// A token made with "full detail" reads the same data a signed-in user sees (still read-only), so another Lumina can show it like its own.
+app.get("/api/token-info", async (req) => ({ detail: fullDetail.has(req) }));
+app.get("/api/instances", async (req) => registry.snapshot(!req.user && !fullDetail.has(req)));
 
 const InstanceName = z.string().trim().min(1).max(64).regex(/^[^\u0000-\u001f/\\]+$/, "Name can't contain slashes or control characters");
 const PollSeconds = z.number().min(1).max(3600).nullable().optional();
@@ -339,14 +345,14 @@ app.get("/api/instances/:id/metric-keys", async (req) => store.metrics.keys((req
 
 // ---- alerts & notifications ------------------------------------------------------------------------------------
 
-// Access tokens: let another Lumina (or a script) read what an anonymous visitor can see, without public viewing being on.
+// Access tokens: let another Lumina (or a script) read what an anonymous visitor can see (or, with "full detail", what a signed-in user sees), without public viewing being on.
 app.get("/api/tokens", { preHandler: admin }, async () => store.tokens.list());
 app.post("/api/tokens", { preHandler: admin }, async (req) => {
-  const { name } = z.object({ name: z.string().trim().min(1).max(60) }).parse(req.body);
+  const { name, detail } = z.object({ name: z.string().trim().min(1).max(60), detail: z.boolean().default(false) }).parse(req.body);
   const token = `lum_${randomBytes(24).toString("base64url")}`;
-  const id = store.tokens.create(name, sha256(token), req.user?.username ?? null);
-  audit(req, "token-created", name);
-  return { id, name, token };
+  const id = store.tokens.create(name, sha256(token), req.user?.username ?? null, detail);
+  audit(req, "token-created", name, detail ? "full detail" : null);
+  return { id, name, token, detail };
 });
 app.delete("/api/tokens/:id", { preHandler: admin }, async (req, reply) => {
   const { id } = z.object({ id: z.coerce.number().int() }).parse(req.params);

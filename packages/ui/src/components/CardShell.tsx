@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useContext, useEffect, useState, type ReactNode } from "react";
 import { api, type InstanceUpdate } from "../api";
-import { useLumina } from "../context";
+import { RemoteView, useLumina } from "../context";
 import { ago, every, summarize } from "../summaries";
 import { HistorySection } from "./charts";
 import { ModuleIcon } from "./Icons";
@@ -35,10 +35,12 @@ export const slug = (s: string) => s.replace(/[^A-Za-z0-9_-]+/g, "-");
 
 export function CardShell({ instance, tag, children, historyPrefer }: CardProps & { tag: string; children: ReactNode; historyPrefer?: string[] }) {
   const { can, alertsFor, notify, edit, go, instances, reloadInstances, maintenanceFor } = useLumina();
-  const maint = maintenanceFor(instance.instanceId);
+  const remote = instance.remote;
+  const viewRemote = useContext(RemoteView);
+  const maint = remote ? null : maintenanceFor(instance.instanceId);
   const [open, toggle] = useOpen(`lumina:card:${instance.instanceId}`);
   const [busy, setBusy] = useState(false);
-  const alerts = alertsFor(instance.instanceId);
+  const alerts = remote ? remote.alerts.map((a) => ({ key: `${a.title}|${a.detail}`, severity: a.severity, title: a.title, detail: a.detail })) : alertsFor(instance.instanceId);
   const ids = instances.map((i) => i.instanceId);
   const idx = ids.indexOf(instance.instanceId);
 
@@ -74,11 +76,11 @@ export function CardShell({ instance, tag, children, historyPrefer }: CardProps 
         </button>
         <span className="card-summary">{summarize(instance)}</span>
         <div className="card-tools">
-          <span className="meta">{instance.enabled ? `${ago(instance.at)} · every ${every(instance.intervalMs)}` : "paused"}</span>
-          {can.operate && instance.enabled && (
+          <span className="meta">{remote ? `${remote.label} · ${instance.at ? ago(instance.at) : "no data yet"}` : instance.enabled ? `${ago(instance.at)} · every ${every(instance.intervalMs)}` : "paused"}</span>
+          {!remote && can.operate && instance.enabled && (
             <button className="btn sm icon" title="Refresh now" disabled={busy} onClick={() => run("refresh", () => api.refresh(instance.instanceId))}>⟳</button>
           )}
-          {can.admin && (
+          {!remote && can.admin && (
             <>
               <button className="btn sm" disabled={busy} onClick={() => run("toggle", async () => { await api.setEnabled(instance.instanceId, !instance.enabled); await reloadInstances(); })}>
                 {instance.enabled ? "Pause" : "Resume"}
@@ -119,7 +121,7 @@ export function CardShell({ instance, tag, children, historyPrefer }: CardProps 
       {open && instance.enabled && (
         <>
           {children}
-          <HistorySection instanceId={instance.instanceId} prefer={historyPrefer} />
+          {!viewRemote && <HistorySection instanceId={instance.instanceId} prefer={historyPrefer} />}
         </>
       )}
     </section>

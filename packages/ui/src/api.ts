@@ -35,6 +35,8 @@ export interface InstanceUpdate {
   minIntervalMs: number;
   customInterval: boolean;
   position: number;
+  /** set on the cards a linked Lumina draws for its devices */
+  remote?: { label: string; alerts: { severity: string; title: string; detail: string | null }[] };
 }
 
 export interface ActiveAlert {
@@ -318,8 +320,8 @@ export const api = {
   testChannel: (id: number) => req<{ ok: boolean; error?: string }>(`/channels/${id}/test`, { method: "POST" }),
 
   users: () => req<UserInfo[]>("/users"),
-  tokens: () => req<{ id: number; name: string; createdAt: number; lastUsed: number | null; createdBy: string | null }[]>("/tokens"),
-  createToken: (name: string) => req<{ id: number; name: string; token: string }>("/tokens", json("POST", { name })),
+  tokens: () => req<{ id: number; name: string; createdAt: number; lastUsed: number | null; createdBy: string | null; detail: boolean }[]>("/tokens"),
+  createToken: (name: string, detail = false) => req<{ id: number; name: string; token: string }>("/tokens", json("POST", { name, detail })),
   deleteToken: (id: number) => req(`/tokens/${id}`, { method: "DELETE" }),
   addUser: (username: string, password: string, role: string) => req("/users", json("POST", { username, password, role })),
   updateUser: (id: number, patch: { role?: string; password?: string }) => req(`/users/${id}`, json("PUT", patch)),

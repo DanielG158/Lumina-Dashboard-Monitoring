@@ -72,6 +72,29 @@ check("with the token home connects and lists the office's devices", await until
 check("the office's alert appears on home with the office's name", await until(async () => (await home.api("GET", "/api/alerts")).data.active.some((a) => a.instanceId === "Office" && /^Office: UPS is running on battery/.test(a.title) && a.severity === "warning")), JSON.stringify((await home.api("GET", "/api/alerts")).data.active.map((a) => a.title)));
 check("the token's last use is recorded", (await office.api("GET", "/api/tokens")).data[0].lastUsed !== null);
 
+// a token with full detail: the other Lumina can show each device like its own
+await office.api("POST", "/api/instances", { body: { moduleId: "netcheck", instanceId: "Checks", config: { targets: "Local | tcp | 127.0.0.1:1" }, pollIntervalSec: 10 } });
+r = await office.api("POST", "/api/tokens", { body: { name: "Home detail", detail: true } });
+const detailToken = r.data?.token;
+check("a token can be made with full detail, and the list says so", r.status === 200 && r.data.detail === true && (await office.api("GET", "/api/tokens")).data.some((t) => t.name === "Home detail" && t.detail === true) && (await office.api("GET", "/api/tokens")).data.find((t) => t.name === "Home Lumina").detail === false);
+const bearer2 = { Authorization: `Bearer ${detailToken}` };
+check("token-info tells which kind of token it is, and needs a token", (await office.api("GET", "/api/token-info", { headers: bearer2, j: none })).data?.detail === true && (await office.api("GET", "/api/token-info", { headers: bearer, j: none })).data?.detail === false && (await office.api("GET", "/api/token-info", { j: none })).status === 401);
+await until(async () => (await office.api("GET", "/api/instances", { headers: bearer2, j: none })).data.find((i) => i.instanceId === "Checks")?.data);
+const targetOf = async (h) => (await office.api("GET", "/api/instances", { headers: h, j: none })).data.find((i) => i.instanceId === "Checks")?.data?.targets?.[0]?.target;
+check("the full-detail token sees addresses; the normal token still does not", (await targetOf(bearer2)) === "127.0.0.1:1" && (await targetOf(bearer)) === "", `${await targetOf(bearer2)} | ${await targetOf(bearer)}`);
+check("a full-detail token is still read-only and cannot read users or settings", (await Promise.all(["/api/users", "/api/audit", "/api/tokens", "/api/settings"].map((p) => office.api("GET", p, { headers: bearer2, j: none })))).every((x) => x.status === 401) && (await office.api("POST", "/api/instances/Checks/refresh", { headers: bearer2, j: none })).status === 401);
+
+r = await home.api("POST", "/api/instances", { body: { moduleId: "lumina", instanceId: "Office detail", config: { url: office.base, label: "Office", token: detailToken }, pollIntervalSec: 10 } });
+const detailInst = async () => (await home.api("GET", "/api/instances")).data.find((i) => i.instanceId === "Office detail");
+check("home, with that token, receives every device of the office as it is", await until(async () => { const i = await detailInst(); const ck = i.data?.remote?.find((x) => x.instanceId === "Checks"); return i.data?.detailed === true && ck?.data?.targets?.[0]?.target === "127.0.0.1:1" && i.data.remote.some((x) => x.instanceId === "Office-UPS" && x.moduleId === "apcupsd" && x.data); }), JSON.stringify((await detailInst()).data?.remote?.map((x) => x.instanceId)));
+const light = (await home.api("GET", "/api/instances")).data.find((i) => i.instanceId === "Office");
+check("with the normal token home gets only the summary", light.data?.detailed === false && light.data?.remote === undefined);
+await home.api("PUT", "/api/settings", { body: { sessionIdleMinutes: 480, alertConfirmPolls: 1, metricsRetentionDays: 14, publicView: true } });
+const seen = (await home.api("GET", "/api/instances", { j: none })).data?.find((i) => i.instanceId === "Office detail");
+check("home's own anonymous viewers do not get the office's detail", seen && seen.data?.remote === undefined && seen.data?.detailed === false, JSON.stringify(Object.keys(seen?.data ?? {})));
+const { detail } = await import(ROOT + "/packages/modules/lumina-remote/dist/index.js");
+check("detail() leaves out other Luminas (no echo loops)", detail([{ instanceId: "A", moduleId: "apcupsd", status: "connected", data: {} }, { instanceId: "B", moduleId: "lumina", status: "connected", data: {} }]).map((x) => x.instanceId).join() === "A");
+
 // revoke
 const id = (await office.api("GET", "/api/tokens")).data[0].id;
 check("revoking works", (await office.api("DELETE", `/api/tokens/${id}`)).status === 200);

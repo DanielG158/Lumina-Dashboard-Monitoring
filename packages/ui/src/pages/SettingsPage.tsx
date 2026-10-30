@@ -224,17 +224,18 @@ function Tokens() {
   const { notify } = useLumina();
   const [list, setList] = useState<Awaited<ReturnType<typeof api.tokens>> | null>(null);
   const [name, setName] = useState("");
+  const [detail, setDetail] = useState(false);
   const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null);
   const load = () => api.tokens().then(setList).catch((e) => notify(err(e), true));
   useEffect(() => { void load(); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   async function create(e: FormEvent) {
     e.preventDefault();
-    try { const t = await api.createToken(name.trim()); setFresh({ name: t.name, token: t.token }); setName(""); await load(); } catch (x) { notify(err(x), true); }
+    try { const t = await api.createToken(name.trim(), detail); setFresh({ name: t.name, token: t.token }); setName(""); setDetail(false); await load(); } catch (x) { notify(err(x), true); }
   }
   return (
     <div className="stack" style={{ maxWidth: 760 }}>
-      <div className="hint">An access token lets <b>another Lumina</b> (say, one at a second site) read this dashboard's devices and alerts, even when public viewing is off. It is read-only and sees exactly what an anonymous visitor sees: no logs, serial numbers or addresses, and it cannot change anything. On the other Lumina, add an instance of type <b>Another Lumina</b> and paste the token there. Make one token per Lumina so you can revoke them separately.</div>
+      <div className="hint">An access token lets <b>another Lumina</b> (say, one at a second site) read this dashboard's devices and alerts, even when public viewing is off. It is read-only and, unless it is made with <b>Full detail</b>, sees exactly what an anonymous visitor sees: no logs, serial numbers or addresses, and it cannot change anything. On the other Lumina, add an instance of type <b>Another Lumina</b> and paste the token there. Make one token per Lumina so you can revoke them separately.</div>
       {fresh && (
         <div className="panel stack" style={{ borderColor: "var(--accent)" }}>
           <b>Token for "{fresh.name}"</b>
@@ -249,7 +250,7 @@ function Tokens() {
           <tbody>
             {list?.map((t) => (
               <tr key={t.id}>
-                <td>{t.name}</td>
+                <td>{t.name}{t.detail && <span className="tag" style={{ marginLeft: 6 }} title="Can read everything a signed-in user sees (read-only)">full detail</span>}</td>
                 <td className="sub">{new Date(t.createdAt * 1000).toLocaleDateString()}{t.createdBy ? ` · ${t.createdBy}` : ""}</td>
                 <td className="sub">{t.lastUsed ? new Date(t.lastUsed * 1000).toLocaleString() : "never"}</td>
                 <td><div className="actions"><button className="btn sm danger" onClick={async () => { if (confirm(`Revoke "${t.name}"? Whatever uses it stops working immediately.`)) { try { await api.deleteToken(t.id); await load(); } catch (x) { notify(err(x), true); } } }}>Revoke</button></div></td>
@@ -265,6 +266,10 @@ function Tokens() {
           <Field label="Name" help="Who or what will use it, for example Home Lumina."><input className="field" required maxLength={60} value={name} onChange={(e) => setName(e.target.value)} /></Field>
           <button className="btn primary">Create</button>
         </div>
+        <label className="row" style={{ alignItems: "flex-start", gap: 8 }}>
+          <input type="checkbox" checked={detail} onChange={(e) => setDetail(e.target.checked)} />
+          <span><b>Full detail</b> — lets the other Lumina show each device here like on this one (drives, guests, logs, addresses, serial numbers). It is still read-only, but it sees what a signed-in user sees, not just what an anonymous visitor sees. Leave it off if a summary is enough.</span>
+        </label>
       </form>
     </div>
   );

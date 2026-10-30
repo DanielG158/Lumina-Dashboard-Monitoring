@@ -215,6 +215,9 @@ export function openDb(path: string) {
     );
   `);
 
+  const tokenCols = (db.prepare("PRAGMA table_info(api_tokens)").all() as { name: string }[]).map((c) => c.name);
+  if (!tokenCols.includes("detail")) db.exec("ALTER TABLE api_tokens ADD COLUMN detail INTEGER NOT NULL DEFAULT 0");
+
   const eventCols = (db.prepare("PRAGMA table_info(events)").all() as { name: string }[]).map((c) => c.name);
   if (!eventCols.includes("notified")) db.exec("ALTER TABLE events ADD COLUMN notified INTEGER NOT NULL DEFAULT 1");
 
@@ -366,9 +369,12 @@ export function openDb(path: string) {
     },
 
     tokens: {
-      list: () => db.prepare("SELECT id, name, created_at AS createdAt, last_used AS lastUsed, created_by AS createdBy FROM api_tokens ORDER BY id").all() as { id: number; name: string; createdAt: number; lastUsed: number | null; createdBy: string | null }[],
-      create: (name: string, hash: string, by: string | null) => Number(db.prepare("INSERT INTO api_tokens (name, token_hash, created_at, created_by) VALUES (?, ?, ?, ?)").run(name, hash, now(), by).lastInsertRowid),
-      find: (hash: string) => db.prepare("SELECT id, name, last_used AS lastUsed FROM api_tokens WHERE token_hash = ?").get(hash) as { id: number; name: string; lastUsed: number | null } | undefined,
+      list: () => (db.prepare("SELECT id, name, created_at AS createdAt, last_used AS lastUsed, created_by AS createdBy, detail FROM api_tokens ORDER BY id").all() as { id: number; name: string; createdAt: number; lastUsed: number | null; createdBy: string | null; detail: number }[]).map((t) => ({ ...t, detail: t.detail === 1 })),
+      create: (name: string, hash: string, by: string | null, detail = false) => Number(db.prepare("INSERT INTO api_tokens (name, token_hash, created_at, created_by, detail) VALUES (?, ?, ?, ?, ?)").run(name, hash, now(), by, detail ? 1 : 0).lastInsertRowid),
+      find: (hash: string) => {
+        const t = db.prepare("SELECT id, name, last_used AS lastUsed, detail FROM api_tokens WHERE token_hash = ?").get(hash) as { id: number; name: string; lastUsed: number | null; detail: number } | undefined;
+        return t && { ...t, detail: t.detail === 1 };
+      },
       touch: (id: number) => db.prepare("UPDATE api_tokens SET last_used = ? WHERE id = ?").run(now(), id),
       delete: (id: number) => db.prepare("DELETE FROM api_tokens WHERE id = ?").run(id).changes,
     },

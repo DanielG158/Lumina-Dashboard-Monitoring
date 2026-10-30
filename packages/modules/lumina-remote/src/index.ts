@@ -12,6 +12,9 @@ type Config = z.infer<typeof ConfigSchema>;
 type Obj = Record<string, any>;
 
 export interface RemoteDevice { name: string; moduleId: string; status: string; line: string; level: "ok" | "warn" | "bad" | "unknown" }
+/** A device of the other Lumina with everything its own card needs; only present when the token allows full detail. */
+export interface RemoteInstance { instanceId: string; moduleId: string; status: string; enabled: boolean; error: string | null; at: number | null; intervalMs: number; data: unknown }
+
 export interface RemoteAlert { instanceId: string; key: string; severity: "critical" | "warning" | "info"; title: string; detail: string | null; since: number }
 
 /** One line about a device on the other Lumina, in the same words that Lumina's own cards use. */
@@ -63,6 +66,13 @@ export function digest(instances: Obj[], alerts: Obj): { devices: RemoteDevice[]
   return { devices, alerts: list };
 }
 
+/** The other Lumina's devices as they are, so this Lumina can draw their cards. Remote Luminas are left out for the same reason as in digest(). */
+export function detail(instances: Obj[]): RemoteInstance[] {
+  return instances
+    .filter((i) => i.moduleId !== "lumina")
+    .map((i) => ({ instanceId: String(i.instanceId), moduleId: String(i.moduleId), status: String(i.status), enabled: i.enabled !== false, error: i.error ?? null, at: typeof i.at === "number" ? i.at : null, intervalMs: Number(i.intervalMs) || 20_000, data: i.data ?? null }));
+}
+
 export default defineModule<Config>({
   id: "lumina",
   name: "Another Lumina",
@@ -74,7 +84,7 @@ export default defineModule<Config>({
       key: "token",
       label: "Access token",
       type: "password",
-      help: "Created on the other Lumina under Settings → Access tokens. Needed when it does not allow public viewing. It only lets this Lumina read what an anonymous visitor could see.",
+      help: "Created on the other Lumina under Settings → Access tokens. Needed when it does not allow public viewing. Normally it lets this Lumina read what an anonymous visitor could see; make the token with \"Full detail\" to see each device here like on the other Lumina.",
     },
     { key: "verifyTls", label: "Verify TLS certificate", type: "boolean", default: false },
     { key: "fingerprint", label: "Certificate fingerprint (optional)", type: "text", help: "SHA-256 fingerprint. When set, Lumina only talks to a server presenting exactly this certificate, even if it is self-signed. Use Detect to read it." },
@@ -92,15 +102,17 @@ export default defineModule<Config>({
     return {
       async poll() {
         try {
-          const [instances, alerts, health] = await Promise.all([
+          const [instances, alerts, health, info] = await Promise.all([
             httpJson<Obj[]>(`${base}/api/instances`, opts),
             httpJson<Obj>(`${base}/api/alerts`, opts),
             httpJson<Obj>(`${base}/health`, opts).catch(() => ({} as Obj)),
+            httpJson<Obj>(`${base}/api/token-info`, opts).catch(() => ({} as Obj)),
           ]);
           if (!Array.isArray(instances)) throw new Error("That address did not answer like a Lumina server");
           healthy = true;
           const d = digest(instances, alerts);
-          return { label: config.label || "Remote", ...d, remoteUptime: typeof health.uptime === "number" ? health.uptime : null };
+          const detailed = info.detail === true;
+          return { label: config.label || "Remote", ...d, remoteUptime: typeof health.uptime === "number" ? health.uptime : null, detailed, remote: detailed ? detail(instances) : undefined };
         } catch (err) {
           healthy = false;
           const m = err instanceof Error ? err.message : String(err);
