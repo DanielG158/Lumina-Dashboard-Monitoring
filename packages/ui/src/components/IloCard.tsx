@@ -29,7 +29,8 @@ interface IloData {
   fans: { name: string; reading: number | null; units: string; health: string | null }[];
   ilo: { firmware: string | null; license: string | null; licenseType: string | null; health: string | null; selfTests: { name: string; status: string; notes: string | null }[];
     hostName: string | null; ip: string | null; ipOrigin: string | null; mac: string | null; speedMbps: number | null } | null;
-  storage: { health: string | null; controllers: { model: string | null; location: string | null; firmware: string | null; health: string | null }[]; drives: Drive[] } | null;
+  storage: { health: string | null; controllers: { model: string | null; location: string | null; firmware: string | null; health: string | null }[];
+    logical?: { name: string; raid: string | null; type: string | null; capacityGiB: number | null; health: string | null; state: string; rebuilding: boolean; percent: number | null; reasons: string[] }[]; drives: Drive[] } | null;
   network: { name: string; firmware: string | null; ports: Port[] }[] | null;
   firmware: { name: string; version: string }[] | null;
   logs: { iml: Entry[] | null; iel: Entry[] | null };
@@ -232,6 +233,22 @@ export function IloCard(props: CardProps) {
 
           {d.storage && (
             <Section id={sid("storage")} title="Storage" count={d.storage.drives.length} meta={d.storage.controllers.map((c) => `${c.model ?? "controller"} (${c.health ?? "?"})`).join(" · ")}>
+              {(d.storage.logical ?? []).length > 0 && (
+                <table>
+                  <thead><tr><th></th><th>RAID volume</th><th>Level</th><th className="num">Size</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {(d.storage.logical ?? []).map((l, i) => (
+                      <tr key={i}>
+                        <td><span className={`dot ${healthDot(l.health)}`} title={l.reasons.join(", ") || l.health || ""} /></td>
+                        <td>{l.name}</td>
+                        <td><span className="tag">{l.raid ?? "—"}</span></td>
+                        <td className="num">{l.capacityGiB !== null ? `${l.capacityGiB.toLocaleString()} GiB` : "—"}</td>
+                        <td>{l.state}{l.rebuilding && l.percent !== null ? ` · ${l.percent}%` : ""}{l.reasons.length ? <small className="warn"> {l.reasons.join(", ")}</small> : null}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
               <table>
                 <thead><tr><th></th><th>Bay</th><th>Model</th><th>Serial</th><th>Type</th><th className="num">Size</th><th className="num">Temp</th><th className="num">Speed</th><th>Firmware</th></tr></thead>
                 <tbody>

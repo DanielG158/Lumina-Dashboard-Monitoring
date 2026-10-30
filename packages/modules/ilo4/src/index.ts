@@ -16,6 +16,43 @@ type Obj = Record<string, any>;
 const hp = (o: Obj | undefined): Obj => o?.Oem?.Hpe ?? o?.Oem?.Hp ?? {};
 const rollup = (st: Obj | undefined): string | null => st?.HealthRollup ?? st?.HealthRollUp ?? st?.Health ?? null;
 const link = (o: Obj | undefined, name: string): string | null => o?.Links?.[name]?.["@odata.id"] ?? o?.links?.[name]?.href ?? null;
+export interface LogicalDrive { name: string; raid: string | null; type: string | null; capacityGiB: number | null; health: string | null; state: string; rebuilding: boolean; percent: number | null; reasons: string[] }
+
+/**
+ * A RAID volume. iLO says "Degraded (Rebuilding)" in its web page; in the API the word can sit in different places depending on
+ * model and firmware, so every text value of the volume is searched for it, and a bare "Warning" is shown as degraded.
+ */
+export function parseLogicalDrive(l: Obj, fallbackName: string): LogicalDrive {
+  const texts: string[] = [];
+  const numbers: [string, number][] = [];
+  const walk = (v: unknown, key: string, depth: number) => {
+    if (depth > 5 || v === null || v === undefined) return;
+    if (typeof v === "string") texts.push(v);
+    else if (typeof v === "number") numbers.push([key, v]);
+    else if (Array.isArray(v)) for (const x of v) walk(x, key, depth + 1);
+    else if (typeof v === "object") for (const [k, x] of Object.entries(v as Obj)) if (!k.startsWith("@") && k !== "links" && k !== "Links") walk(x, k, depth + 1);
+  };
+  walk(l, "", 0);
+  const o = hp(l);
+  const health: string | null = l.Status?.Health ?? o.Status?.Health ?? null;
+  const reasons = [...new Set([...(o.LogicalDriveStatusReasons ?? []), ...(o.StatusReasons ?? []), ...(l.Status?.Reasons ?? [])].map(String))].filter((r) => r && r !== "None");
+  const rebuilding = texts.some((t) => /rebuild|recover/i.test(t));
+  const pct = numbers.find(([k, n]) => /(rebuild|recover|progress)/i.test(k) && n >= 0 && n <= 100);
+  const mib = typeof l.CapacityMiB === "number" ? l.CapacityMiB : typeof o.CapacityMiB === "number" ? o.CapacityMiB : null;
+  const raid = l.Raid ?? o.Raid ?? l.LogicalDriveType ?? null;
+  return {
+    name: String(l.LogicalDriveName || o.LogicalDriveName || l.Name || fallbackName),
+    raid: raid === null ? null : /^\d+$/.test(String(raid)) ? `RAID ${raid}` : String(raid),
+    type: o.LogicalDriveType ?? l.LogicalDriveType ?? null,
+    capacityGiB: mib === null ? null : Math.round((mib / 1024) * 10) / 10,
+    health,
+    state: rebuilding ? "Degraded (rebuilding)" : health === "OK" || health === "Ok" ? "OK" : health === "Warning" ? "Degraded" : health === "Critical" ? "Failed" : health ?? "Unknown",
+    rebuilding,
+    percent: pct ? pct[1] : null,
+    reasons,
+  };
+}
+
 /** The iLO's own breakdown of what makes the server "Warning" or "Critical" (Oem AggregateHealthStatus). */
 export function healthComponents(system: Obj): { name: string; health: string }[] {
   const agg = hp(system).AggregateHealthStatus as Obj | undefined;
@@ -170,6 +207,7 @@ export default defineModule<Config>({
           const root = await get("/redfish/v1/Systems/1/SmartStorage/");
           const controllers: Obj[] = [];
           const drives: Obj[] = [];
+          const logical: LogicalDrive[] = [];
           for (const c of await each("/redfish/v1/Systems/1/SmartStorage/ArrayControllers/", 4)) {
             controllers.push({
               model: c.Model ?? null,
@@ -179,6 +217,12 @@ export default defineModule<Config>({
               serial: c.SerialNumber ?? null,
               cacheMiB: num(c.CacheMemorySizeMiB),
             });
+            const logicalLink = link(c, "LogicalDrives");
+            if (logicalLink) {
+              try {
+                for (const l of await each(logicalLink, 16)) logical.push(parseLogicalDrive(l, `Logical drive ${logical.length + 1}`));
+              } catch { /* older firmware has no volume list; the physical drives are still shown */ }
+            }
             const drivesLink = link(c, "PhysicalDrives");
             if (!drivesLink) continue;
             for (const d of await each(drivesLink, 32)) {
@@ -199,7 +243,7 @@ export default defineModule<Config>({
               });
             }
           }
-          return { health: root.Status?.Health ?? null, controllers, drives };
+          return { health: root.Status?.Health ?? null, controllers, logical, drives };
         },
       },
       {
@@ -427,6 +471,10 @@ export default defineModule<Config>({
         for (const f of d.fans ?? []) if (bad(f.health)) out.push({ key: `fan:${f.name}`, severity: "critical", title: `${f.name} has a problem`, detail: f.health });
         for (const p of d.supplies ?? []) if (bad(p.health)) out.push({ key: `psu:${p.name}`, severity: "critical", title: `Power supply ${p.name} has a problem`, detail: p.health });
         for (const c of d.storage?.controllers ?? []) if (bad(c.health)) out.push({ key: `controller:${c.location}`, severity: "critical", title: `Storage controller ${c.model ?? ""} has a problem`, detail: c.health });
+        for (const [n, l] of ((d.storage?.logical ?? []) as LogicalDrive[]).entries()) {
+          if (l.rebuilding) out.push({ key: `logical:${n}`, severity: "warning", title: `RAID volume "${l.name}" (${l.raid ?? "RAID"}) is rebuilding`, detail: l.percent !== null ? `${l.percent}% done` : "The array is running without full redundancy until it finishes" });
+          else if (bad(l.health)) out.push({ key: `logical:${n}`, severity: l.health === "Warning" ? "warning" : "critical", title: `RAID volume "${l.name}" (${l.raid ?? "RAID"}) is ${l.state.toLowerCase()}`, detail: l.reasons.join(", ") || undefined });
+        }
         for (const x of d.storage?.drives ?? []) {
           const id = x.serial ?? x.location;
           if (bad(x.health)) out.push({ key: `drive:${id}`, severity: "critical", title: `Drive ${x.location ?? ""} (${x.model ?? "unknown"}) is ${x.health}`, detail: (x.reasons ?? []).join(", ") || undefined });
@@ -451,7 +499,7 @@ export default defineModule<Config>({
           out.push({ key: `read-failed:${section}`, severity: "info", title: `Could not read ${section} from the iLO`, detail: (i > 0 ? w.slice(i + 1) : w).trim().slice(0, 300) });
         }
         const unknown: string[] = [];
-        if (!d.storage) unknown.push("drive:", "drive-temp:", "controller:");
+        if (!d.storage) unknown.push("drive:", "drive-temp:", "controller:", "logical:");
         if (!d.memory?.dimms) unknown.push("dimm:");
         if (!d.logs?.iml) unknown.push("iml:");
         if (!d.ilo) unknown.push("ilo-selftest:");
