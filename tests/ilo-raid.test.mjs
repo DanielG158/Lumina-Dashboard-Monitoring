@@ -18,6 +18,10 @@ check("Warning with no other hint is shown as degraded, not as rebuilding", !c.r
 const dd = parseLogicalDrive({ Status: { Health: "Critical" }, Oem: { Hpe: { ParityInitializationCompletionPercentage: 50 } } }, "x");
 check("initialising parity is not mistaken for a rebuild", !dd.rebuilding && dd.percent === null && dd.state === "Failed", JSON.stringify(dd));
 
+const named = parseLogicalDrive({ Raid: "5", Status: { Health: "OK" }, LogicalDriveNumber: 1, Oem: { Hp: { LogicalDriveName: "02DA72AFPDNLH0BRH47F1OEA1F" } } }, "x");
+check("a volume labelled only with its id is shown as Logical Drive 01", named.name === "Logical Drive 01", named.name);
+check("a name someone chose is kept", parseLogicalDrive({ Status: { Health: "OK" }, LogicalDriveNumber: 2, Oem: { Hp: { LogicalDriveName: "Databases" } } }, "x").name === "Databases");
+
 // end to end
 const S = "/redfish/v1/Systems/1/SmartStorage/";
 const routes = {

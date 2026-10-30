@@ -40,8 +40,12 @@ export function parseLogicalDrive(l: Obj, fallbackName: string): LogicalDrive {
   const pct = numbers.find(([k, n]) => /(rebuild|recover|progress)/i.test(k) && n >= 0 && n <= 100);
   const mib = typeof l.CapacityMiB === "number" ? l.CapacityMiB : typeof o.CapacityMiB === "number" ? o.CapacityMiB : null;
   const raid = l.Raid ?? o.Raid ?? l.LogicalDriveType ?? null;
+  const given = String(l.LogicalDriveName || o.LogicalDriveName || l.Name || "");
+  const num = l.LogicalDriveNumber ?? o.LogicalDriveNumber;
+  // A volume nobody named is labelled with its serial-like id; the iLO's own pages call it "Logical Drive 01".
+  const name = given && !/^(?=.*\d)[0-9a-z]{16,}$/i.test(given) ? given : typeof num === "number" ? `Logical Drive ${String(num).padStart(2, "0")}` : given || fallbackName;
   return {
-    name: String(l.LogicalDriveName || o.LogicalDriveName || l.Name || fallbackName),
+    name,
     raid: raid === null ? null : /^\d+$/.test(String(raid)) ? `RAID ${raid}` : String(raid),
     type: o.LogicalDriveType ?? l.LogicalDriveType ?? null,
     capacityGiB: mib === null ? null : Math.round((mib / 1024) * 10) / 10,
@@ -526,6 +530,21 @@ export default defineModule<Config>({
         powerAction("shutdown", "Shut down (graceful)", "PushPowerButton", "On", true, { schedulable: true, downtimeMinutes: 30 }),
         powerAction("restart", "Restart (hard reset)", "ForceRestart", "On", true, { downtimeMinutes: 30 }),
         powerAction("force-off", "Force off", "ForceOff", "On", true, { downtimeMinutes: 30 }),
+        {
+          id: "storage-raw",
+          label: "Show the raw RAID data (for troubleshooting)",
+          minRole: "admin" as const,
+          dangerous: false,
+          async run() {
+            const out: Obj[] = [];
+            for (const c of await each("/redfish/v1/Systems/1/SmartStorage/ArrayControllers/", 4)) {
+              const lv = link(c, "LogicalDrives");
+              const pd = link(c, "PhysicalDrives");
+              out.push({ controller: c.Model ?? null, status: c.Status ?? null, logical: lv ? await each(lv, 16) : null, physical: pd ? await each(pd, 32) : null });
+            }
+            return out;
+          },
+        },
       ],
       async dispose() {
         disposed = true;

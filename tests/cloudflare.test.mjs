@@ -43,7 +43,8 @@ h = await checkHostname("no-such-host.invalid");
 check("a name that does not resolve is reported as DNS", !h.dns.ok && h.https.ok === false && h.cert === null);
 
 // ---- churn ----
-const t0 = Date.now();
+// start well inside a 2-minute bucket, or a burst that begins just before a boundary would be counted twice
+const t0 = Math.floor(Date.now() / 120_000) * 120_000 + 20_000;
 check("one burst of new connections is one stretch, steady churn is many", churnBuckets([t0, t0 + 1000, t0 + 5000], t0 + 6000) === 1 && churnBuckets([t0 - 600_000, t0 - 400_000, t0 - 200_000, t0], t0) === 4 && churnBuckets([t0 - 3_600_000], t0) === 0);
 
 // ---- the module ----

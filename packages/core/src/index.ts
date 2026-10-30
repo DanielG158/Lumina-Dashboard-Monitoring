@@ -25,6 +25,7 @@ import { ModuleRegistry } from "./registry.js";
 import { AlertEngine } from "./alerts.js";
 import { MetricsRecorder, RANGES } from "./metrics.js";
 import { CHANNEL_TYPES, createNotifier, deliver } from "./notify.js";
+import { createReminders } from "./email.js";
 import { loadTls, startHttpRedirect } from "./tls.js";
 import { redactState } from "./redact.js";
 import { sha256 } from "./crypto.js";
@@ -242,6 +243,8 @@ app.put("/api/instances/:id", { preHandler: admin }, async (req, reply) => {
     if (f.type === "password" && (merged[f.key] === undefined || merged[f.key] === "")) merged[f.key] = row.config[f.key];
   }
   const intervalMs = body.pollIntervalSec === undefined ? row.pollIntervalMs : body.pollIntervalSec ? registry.clampInterval(row.moduleId, body.pollIntervalSec * 1000) : null;
+  // Switching the backup-age check off removes its alerts for good; they are closed without a "fixed" message for each.
+  if (row.moduleId === "proxmox" && Number(merged.backupMaxAgeDays ?? 8) === 0 && Number(row.config.backupMaxAgeDays ?? 8) !== 0) engine.closeQuietly(id, ["backup-stale:", "backup-missing:"]);
   await registry.start(row.moduleId, id, merged, { intervalMs, enabled: row.enabled });
   store.instances.save(id, row.moduleId, merged, { pollIntervalMs: intervalMs });
   audit(req, "instance-edited", id, intervalMs ? `refresh ${intervalMs / 1000}s` : null);
@@ -855,6 +858,9 @@ if (existsSync(UI_DIR)) {
 // ---- housekeeping ----------------------------------------------------------------------------------------------
 
 const day = 86400;
+// Once a day each email channel mails whatever is still not fixed (see email.ts).
+const reminders = createReminders(store, () => engine.active(), app.log);
+const reminderTimer = setInterval(() => void reminders(), 60_000);
 const housekeeping = setInterval(() => {
   const now = Math.floor(Date.now() / 1000);
   store.sessions.purge();
@@ -869,6 +875,7 @@ let energyTimer: NodeJS.Timeout | undefined;
 
 async function shutdown() {
   clearInterval(housekeeping);
+  clearInterval(reminderTimer);
   if (energyTimer) clearInterval(energyTimer);
   scheduler.stop();
   metrics.flush();

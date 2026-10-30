@@ -159,6 +159,20 @@ export class AlertEngine {
     if (f.length) this.io.emit("alerts:changed");
   }
 
+  /** Alerts of one kind are no longer wanted (a check was switched off): close them without announcing a "fixed" for each. */
+  closeQuietly(instanceId: string, keyPrefixes: string[]) {
+    const mine = (key: string) => keyPrefixes.some((p) => key.startsWith(p));
+    let changed = false;
+    for (const [id, a] of this.firing) {
+      if (a.instanceId !== instanceId || !mine(a.key)) continue;
+      this.store.events.resolve(a.id);
+      this.firing.delete(id);
+      changed = true;
+    }
+    for (const id of [...this.pending.keys()]) if (id.startsWith(`${instanceId}\u0000`) && mine(id.slice(instanceId.length + 1))) this.pending.delete(id);
+    if (changed) this.io.emit("alerts:changed");
+  }
+
   clearInstance(instanceId: string) {
     let changed = false;
     for (const [id, a] of this.firing) {
@@ -177,14 +191,16 @@ export class AlertEngine {
     const worst = (list: Tracked[]): Severity => (list.some((a) => a.severity === "critical") ? "critical" : list.some((a) => a.severity === "warning") ? "warning" : "info");
     if (fired.length) {
       await this.notify({
-        severity: worst(fired), resolved: false, instanceId,
+        severity: worst(fired), resolved: false, instanceId, kind: "new",
+        items: fired.map((a) => ({ severity: a.severity, title: a.title, detail: a.detail, since: a.since, instanceId: a.instanceId })),
         title: fired.length === 1 ? fired[0].title : `${fired.length} ${suffix ? "alerts" : "new alerts"} on ${instanceId}`,
         lines: [...(fired.length === 1 ? (fired[0].detail ? [fired[0].detail] : []) : many(fired)), ...(suffix ? [`(${suffix})`] : [])],
       });
     }
     if (resolved.length) {
       await this.notify({
-        severity: worst(resolved), resolved: true, instanceId,
+        severity: worst(resolved), resolved: true, instanceId, kind: "resolved",
+        items: resolved.map((a) => ({ severity: a.severity, title: a.title, detail: a.detail, since: a.since, instanceId: a.instanceId })),
         title: resolved.length === 1 ? resolved[0].title : `${resolved.length} alerts resolved on ${instanceId}`,
         lines: resolved.length === 1 ? [] : many(resolved),
       });

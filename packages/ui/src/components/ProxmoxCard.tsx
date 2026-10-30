@@ -212,6 +212,22 @@ export function ProxmoxCard(props: CardProps) {
   const [dialog, setDialog] = useState<{ kind: "snapshot" | "backup"; guest: PveGuest } | null>(null);
   const sid = (name: string) => `proxmox:${instance.instanceId}:${name}`;
 
+  /** One click for a whole Proxmox: stop (or resume) warning about guests without a recent backup, for example on a test server. */
+  async function backupWarnings(on: boolean) {
+    const days = data.backupPolicy?.maxAgeDays ?? 0;
+    if (!on && !confirm(`Stop warning about missing backups on ${instance.instanceId}? Its "no recent backup" alerts are closed, and failed backup jobs are still reported.`)) return;
+    setPending("backup-warnings");
+    try {
+      const c = await api.getConfig(instance.instanceId);
+      await api.updateInstance(instance.instanceId, { ...c.config, backupMaxAgeDays: on ? (days > 0 ? days : 8) : 0 });
+      notify(on ? "Backup warnings are on again" : "Backup warnings are off for this Proxmox");
+    } catch (err) {
+      notify(err instanceof Error ? err.message : String(err), true);
+    } finally {
+      setPending(null);
+    }
+  }
+
   async function run(op: "start" | "stop" | "reboot", g: PveGuest) {
     if (op !== "start" && !confirm(`${op} ${g.name} (${g.vmid})?`)) return;
     setPending(`${g.vmid}:${op}`);
@@ -283,6 +299,13 @@ export function ProxmoxCard(props: CardProps) {
         })}
       </div>
 
+      {can.admin && data.backupPolicy && (vms.length > 0 || cts.length > 0) && (
+        <div className="sub" style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {data.backupPolicy.maxAgeDays > 0
+            ? <>Backup warnings are on (older than {data.backupPolicy.maxAgeDays} days).<button className="btn sm" disabled={pending === "backup-warnings"} onClick={() => void backupWarnings(false)}>Turn off for this Proxmox</button></>
+            : <>Backup warnings are off for this Proxmox.<button className="btn sm" disabled={pending === "backup-warnings"} onClick={() => void backupWarnings(true)}>Turn on</button></>}
+        </div>
+      )}
       {vms.length > 0 && <GuestTable id={sid("vms")} title="Virtual machines" guests={vms} pending={pending} maxAgeDays={data.backupPolicy?.maxAgeDays ?? 0} canOperate={can.operate} onAction={run} onDialog={(kind, guest) => setDialog({ kind, guest })} />}
       {cts.length > 0 && <GuestTable id={sid("cts")} title="Containers" guests={cts} pending={pending} maxAgeDays={data.backupPolicy?.maxAgeDays ?? 0} canOperate={can.operate} onAction={run} onDialog={(kind, guest) => setDialog({ kind, guest })} />}
 

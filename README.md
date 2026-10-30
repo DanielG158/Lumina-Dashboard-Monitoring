@@ -17,7 +17,7 @@
 - **Several sites.** Add **Another Lumina** to see a second site's devices and alerts here, using a read-only access token, with no VPN session needed.
 - **UPS (apcupsd), Uptime Kuma, Cloudflare tunnels.** Status, history, alerts. Cloudflare: hostname health and certificate dates, DNS records, traffic, dynamic DNS and Access logins.
 - **Energy and cost.** Turns the UPS or iLO power reading into kWh and money for any day, range or billing cycle. Fully adjustable tariff (flat, time-of-day, progressive blocks), currency, tax, billing day and budget. Shows the cost per VM and container, projects the month, and has a helper to calibrate against your electricity meter.
-- **Alerts.** Every module reports warnings on its own card. Notifications to Discord, Slack, Telegram, ntfy or any webhook. Maintenance windows and scheduled actions (snapshot at 2 a.m., power on at 7 a.m.) keep planned work from raising false alarms.
+- **Alerts.** Every module reports warnings on its own card. Notifications to email, Discord, Slack, Telegram, ntfy or any webhook. Maintenance windows and scheduled actions (snapshot at 2 a.m., power on at 7 a.m.) keep planned work from raising false alarms.
 - **Access levels.** Anyone on your network can *view* without logging in. **Operators** sign in to start and stop things. **Admins** add, edit and remove everything else. Sensitive details are hidden from anonymous viewers.
 - **Secure by default.** HTTPS with an automatic certificate, credentials encrypted at rest, hashed passwords, lockout, audit log, sandboxed service. See [docs/security-assessment.md](docs/security-assessment.md).
 - **Easy to move.** Everything is configured in the web UI. Back up to a passphrase-protected file and restore it on a new machine.
@@ -65,7 +65,7 @@ Use a dedicated, least-privilege account or token for Lumina on every device, ne
 4. In Lumina: **Add → Proxmox VE**. Host URL `https://<proxmox-ip>:8006`, the Token ID and the Secret.
 5. Proxmox uses a self-signed certificate by default. Leave **Verify TLS certificate** off and press **Detect** next to *Certificate fingerprint* to pin it. Lumina then talks only to that exact certificate.
 
-Optional: *Warn when a guest's last backup is older than* (default 8 days; set 0 to turn off) and *Guests that don't need backups* (IDs to skip).
+Optional: *Warn when a guest's last backup is older than* (default 8 days; set 0 to turn off) and *Guests that don't need backups* (IDs to skip). Admins can also turn the backup warnings off or on for a whole Proxmox with the button above the guest list, for example for a test server; the open "no recent backup" alerts are then closed quietly.
 If the card shows blanks or "no permissions", the token is missing the permission at `/` with Propagate (and the token itself needs it when privilege separation is on).
 
 ### HPE iLO (iLO 4 and iLO 5)
@@ -208,6 +208,7 @@ You see its devices and alerts here, and its alerts are raised here too, so your
 | Slack | Create an *Incoming Webhook* for the workspace and copy its URL |
 | Telegram | Talk to `@BotFather`, send `/newbot`, copy the bot token. Send your bot a message, then open `https://api.telegram.org/bot<token>/getUpdates` to find your chat ID |
 | ntfy (phone push) | Install the ntfy app, subscribe to a hard-to-guess topic, enter the same topic in Lumina (leave the server empty to use ntfy.sh, or enter your own) |
+| Email | Your SMTP server, a from address and one or more recipients. A new problem is mailed at once; if it is still there a day later it is mailed again every day at the time you set (default 08:00, type `off` to stop) until it is fixed, and you get a "Fixed" email when it is. Set the channel to *Critical only* to hear only about failed disks, memory, power supplies and the like |
 | Webhook | Any URL; Lumina posts JSON, with an optional Authorization header |
 
 A problem must persist for a couple of polls before it is raised (adjustable under Settings → General), so a single dropped reading does not wake you up. Resolved alerts send a "resolved" message too.

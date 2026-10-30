@@ -18,7 +18,7 @@ Contents: [1 Status](#1-status-against-the-original-plan) · [2 Architecture](#2
 | Uptime Kuma | Monitor status and response time | Done through Kuma's `/metrics` endpoint with an API key |
 | Cloudflare | Tunnel status, add/remove/edit hostnames | Done: tunnels, hostname and certificate checks, DNS records, traffic, dynamic DNS, Access logins (section 4h). Only the tunnel part has run against a real account |
 | SSH/RDP broker (JumpServer/Guacamole) | Planned | Not started |
-| Notifications | Email, FCM/APNs push, Telegram/Discord/Slack | Discord, Slack, Telegram, ntfy (phone push) and generic webhook. No email, FCM or APNs |
+| Notifications | Email, FCM/APNs push, Telegram/Discord/Slack | Email (SMTP), Discord, Slack, Telegram, ntfy (phone push) and generic webhook. No FCM or APNs |
 | Authentication | LDAP, email, local, rate limiting, timeout | Local accounts with roles, lockout, idle timeout. No LDAP |
 | Theming | 4 themes, accent, wallpaper, community themes | 4 themes and accent colour. No wallpaper or theme import |
 | Security | Encrypted credentials, audit log, rate limits | All done (see section 6) |
@@ -107,9 +107,17 @@ Every instance also gets an **unreachable** alert after 3 failed polls in a row.
 - Several alerts from one poll go out as one message. **Mute** (operator or admin) stops raising and notifying a given alert; unmute in the Alerts tab.
 - Active alerts show on the instance card, the Overview ("Needs attention"), the Alerts tab (with history) and in the browser tab title, e.g. `(2) Lumina`.
 
-Notification channels (Settings, Notifications, admin only): **Discord**, **Slack**, **Telegram**, **ntfy** (push to the ntfy phone app,
+Notification channels (Settings, Notifications, admin only): **Email (SMTP)**, **Discord**, **Slack**, **Telegram**, **ntfy** (push to the ntfy phone app,
 iOS and Android), and a **generic webhook** (JSON). Each channel has a minimum severity (everything, warnings and up, critical only),
 a "Send test" button, and shows its last error. Webhook URLs and tokens are stored encrypted and never sent back to the browser.
+
+**Email.** Fields: SMTP server, port, security (`starttls` default, `tls` or `none`), optional username and password, from address, one or more
+recipients, the daily reminder time, an optional link to Lumina and whether to check the server certificate. A new problem is mailed as soon as
+it is confirmed (after the usual number of polls); a message groups the problems of one device. A problem that is still there at least 20 hours
+later is mailed again once a day at the reminder time, as one email listing everything still not fixed with how long each has lasted, and
+nothing is sent on days when nothing is outstanding. When a problem is fixed a "Fixed" email says how long it took. The reminder day is stored,
+so a restart never repeats the email. The minimum severity of the channel decides what is mailed (choose *Critical only* to hear only about
+failed parts). Problems inside a maintenance window are left out of the reminder. The SMTP password is stored encrypted.
 
 ## 4b. Maintenance, scheduled actions, backup age and storage forecast
 
@@ -117,7 +125,7 @@ a "Send test" button, and shows its last error. Webhook URLs and tokens are stor
 
 **Scheduled actions** (Maintenance tab, admins). Run an action at a time or on a repeat: snapshot, backup, start, stop or reboot a VM or container, or iLO power on or a graceful shutdown. Hard resets cannot be scheduled. Each run is recorded (result, or Proxmox's reason for failing), written to the audit log as "scheduler", and a failure sends a notification. A run that is more than 30 minutes late (1 hour for one-offs), for example because Lumina was restarting, is skipped, not made up later.
 
-**Backup age.** The Proxmox card has a "Last backup" column read from your backup storages (cached 10 minutes). The Overview shows a "Backups fresh" tile. Two settings per Proxmox instance: the age that counts as stale (default 8 days, 0 turns it off) and guest IDs that need no backups. A warning is raised for a guest whose newest backup is older than the limit, or that is in a backup job but has no backup file. Guests not in any job are shown as "not in a job" and do not raise alerts.
+**Backup age.** The Proxmox card has a "Last backup" column read from your backup storages (cached 10 minutes). The Overview shows a "Backups fresh" tile. Two settings per Proxmox instance: the age that counts as stale (default 8 days, 0 turns it off) and guest IDs that need no backups. A warning is raised for a guest whose newest backup is older than the limit, or that is in a backup job but has no backup file. Guests not in any job are shown as "not in a job" and do not raise alerts. Admins can switch the whole check off or on with the button above the guest list (it sets the age to 0 or back to 8); the open stale/missing-backup alerts of that server are closed without a "fixed" message for each, and failed backup jobs are still reported.
 
 **Storage forecast.** From each volume's history (last 14 days, hourly averages) Lumina fits a straight line and estimates when it will be full. It is shown on the Overview ("full in ~N days") and in the Proxmox storage table, and raises a warning when it is within 14 days (adjustable in Settings, General), critical within 3. It needs about two days of history, and it says "no clear trend" when usage goes up and down (a weekly backup volume that fills and is pruned fits a line poorly).
 

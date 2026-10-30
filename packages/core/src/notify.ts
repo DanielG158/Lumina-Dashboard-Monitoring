@@ -1,5 +1,6 @@
 import { httpRequestRaw } from "@lumina/sdk";
 import type { ChannelRow, Store } from "./db.js";
+import { sendEmail } from "./email.js";
 
 export type Severity = "info" | "warning" | "critical";
 const RANK: Record<Severity, number> = { info: 0, warning: 1, critical: 2 };
@@ -10,6 +11,10 @@ export interface Notification {
   title: string;
   lines: string[];
   instanceId: string;
+  /** "reminder" is the daily mail about problems that are still there */
+  kind?: "new" | "resolved" | "reminder";
+  /** the individual problems behind this message, for channels that can show them properly (email) */
+  items?: { severity: Severity; title: string; detail: string | null; since?: number; instanceId?: string }[];
 }
 
 export interface ChannelType {
@@ -40,6 +45,21 @@ export const CHANNEL_TYPES: ChannelType[] = [
       { key: "server", label: "Server", type: "text", placeholder: "https://ntfy.sh", help: "Leave empty for ntfy.sh. Install the ntfy app on iOS/Android and subscribe to the topic." },
       { key: "topic", label: "Topic", type: "text", required: true, help: "Pick something hard to guess" },
       { key: "token", label: "Access token (optional)", type: "password" },
+    ],
+  },
+  {
+    id: "email", name: "Email (SMTP)",
+    fields: [
+      { key: "host", label: "SMTP server", type: "text", required: true, placeholder: "smtp.example.com" },
+      { key: "port", label: "Port", type: "text", placeholder: "587", help: "Leave empty for the usual port: 587 (starttls), 465 (tls) or 25 (none)." },
+      { key: "security", label: "Security", type: "text", placeholder: "starttls", help: "starttls, tls or none. Leave empty for starttls." },
+      { key: "username", label: "Username (optional)", type: "text" },
+      { key: "password", label: "Password (optional)", type: "password" },
+      { key: "from", label: "From address", type: "text", required: true, placeholder: "lumina@example.com" },
+      { key: "to", label: "Send to", type: "text", required: true, placeholder: "you@example.com, team@example.com", help: "One or more addresses, separated by commas." },
+      { key: "remindAt", label: "Daily reminder at", type: "text", placeholder: "08:00", help: "While a problem is still not fixed a day later, it is mailed again every day at this time (24-hour clock). Type off for no reminders." },
+      { key: "url", label: "Link to Lumina (optional)", type: "text", placeholder: "https://192.168.11.15", help: "Adds an Open Lumina link to every email." },
+      { key: "verifyTls", label: "Check the server certificate", type: "text", placeholder: "yes", help: "Type no only for a mail server with a self-signed certificate." },
     ],
   },
   {
@@ -92,6 +112,8 @@ export async function deliver(ch: Pick<ChannelRow, "type" | "config">, n: Notifi
       if (res.status >= 300) throw new Error(`HTTP ${res.status} ${res.statusText} ${res.body.slice(0, 160)}`.trim());
       return;
     }
+    case "email":
+      return sendEmail(c, n);
     case "webhook":
       return post(c.url, { source: "lumina", state: n.resolved ? "resolved" : "firing", severity: n.severity, title: n.title, instance: n.instanceId, lines: n.lines, time: new Date().toISOString() }, c.secret ? { Authorization: c.secret } : {});
     default:

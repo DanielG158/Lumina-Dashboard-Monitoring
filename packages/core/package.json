@@ -16,18 +16,19 @@
     "@fastify/static": "^10.1.5",
     "@lumina/module-apcupsd": "workspace:*",
     "@lumina/module-cloudflare": "workspace:*",
-    "@lumina/module-ilo4": "workspace:*",
     "@lumina/module-ilo-snmp": "workspace:*",
+    "@lumina/module-ilo4": "workspace:*",
     "@lumina/module-lumina-remote": "workspace:*",
     "@lumina/module-netcheck": "workspace:*",
     "@lumina/module-omada": "workspace:*",
-    "@lumina/module-tplink-router": "workspace:*",
-    "@lumina/module-snmp": "workspace:*",
     "@lumina/module-proxmox": "workspace:*",
+    "@lumina/module-snmp": "workspace:*",
+    "@lumina/module-tplink-router": "workspace:*",
     "@lumina/module-uptime-kuma": "workspace:*",
     "@lumina/sdk": "workspace:*",
     "better-sqlite3": "^11.0.0",
     "fastify": "^5.12.6",
+    "nodemailer": "^10.3.0",
     "pino": "^9.0.0",
     "socket.io": "^4.8.0",
     "zod": "^3.23.0"
@@ -35,6 +36,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
+    "@types/nodemailer": "^8.0.2",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }
