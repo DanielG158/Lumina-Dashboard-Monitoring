@@ -46,22 +46,33 @@ const routes = {
   [S + "ArrayControllers/0/DiskDrives/0/"]: { Location: "1I:3:4", Model: "ST1200MM0088", CapacityMiB: 1144641, Status: { Health: "OK" } },
 };
 
-function fake(withSessions) {
+function fake(mode) {
   const seen = { logins: 0, jsonCalls: 0, logouts: 0, badCookie: 0 };
   const srv = http.createServer((req, res) => {
     const send = (code, body, headers = {}) => { res.writeHead(code, { "content-type": "application/json", ...headers }); res.end(JSON.stringify(body)); };
-    if (req.url === "/redfish/v1/Sessions/" && req.method === "POST") {
-      if (!withSessions) return send(404, {});
-      seen.logins++;
-      return send(201, {}, { "x-auth-token": "tok123", location: "https://192.0.2.1/redfish/v1/Sessions/abc/" });
-    }
-    if (req.url === "/redfish/v1/Sessions/abc/" && req.method === "DELETE") { if (req.headers["x-auth-token"] === "tok123") seen.logouts++; return send(200, {}); }
-    if (req.url === "/json/health_drives") {
-      seen.jsonCalls++;
-      if (req.headers.cookie !== "sessionKey=tok123") { seen.badCookie++; return send(401, {}); }
-      return send(200, web);
-    }
-    send(200, routes[req.url] ?? { Members: [] });
+    let raw = "";
+    req.on("data", (c) => { raw += c; });
+    req.on("end", () => {
+      if (req.url === "/json/login_session" && req.method === "POST") {
+        let b = {}; try { b = JSON.parse(raw); } catch { /* empty */ }
+        if (b.method === "logout") { if (req.headers.cookie === "sessionKey=webkey1") seen.logouts++; return send(200, {}); }
+        if (mode !== "json") return send(404, {});
+        seen.logins++;
+        return send(200, { session_key: "webkey1" });
+      }
+      if (req.url === "/redfish/v1/Sessions/" && req.method === "POST") {
+        if (mode !== "redfish") return send(404, {});
+        seen.logins++;
+        return send(201, {}, { "x-auth-token": "webkey1", location: "https://192.0.2.1/redfish/v1/Sessions/abc/" });
+      }
+      if (req.url === "/redfish/v1/Sessions/abc/" && req.method === "DELETE") { if (req.headers["x-auth-token"] === "webkey1") seen.logouts++; return send(200, {}); }
+      if (req.url === "/json/health_drives") {
+        seen.jsonCalls++;
+        if (req.headers.cookie !== "sessionKey=webkey1") { seen.badCookie++; return send(401, {}); }
+        return send(200, web);
+      }
+      send(200, routes[req.url] ?? { Members: [] });
+    });
   }).listen(0, "127.0.0.1");
   return { srv, seen };
 }
@@ -73,27 +84,37 @@ async function load(f) {
   return { inst, d };
 }
 
-const a1 = fake(true);
-const { inst, d } = await load(a1);
-const lv = d.storage?.logical ?? [];
-check("both volumes are read from the controller's LogicalDrives link", lv.length === 2 && lv[1].name === "System" && lv[0].name === "Logical Drive 01", JSON.stringify(lv.map((x) => x.name)));
-check("the Data volume is shown as rebuilding, using the iLO web page", lv[0]?.rebuilding === true && lv[0].state === "Degraded (rebuilding)", JSON.stringify(lv[0]));
-check("it logged in once and sent the session key as a cookie", a1.seen.logins === 1 && a1.seen.jsonCalls === 1 && a1.seen.badCookie === 0, JSON.stringify(a1.seen));
-check("the physical drives are still read next to them", d.storage?.drives.length === 1 && d.storage.drives[0].health === "OK");
-const al = inst.alerts(d).conditions;
-const r = al.find((x) => x.key === "logical:0");
-check("the rebuilding volume raises a warning, not a critical alert", r?.severity === "warning" && /rebuilding/.test(r.title), JSON.stringify(r));
-check("the healthy volume raises nothing", !al.some((x) => x.key === "logical:1"));
-await inst.dispose?.();
-check("the session is closed again when the instance stops", a1.seen.logouts === 1, JSON.stringify(a1.seen));
-a1.srv.close();
+for (const mode of ["json", "redfish"]) {
+  const f = fake(mode);
+  const { inst, d } = await load(f);
+  const lv = d.storage?.logical ?? [];
+  if (mode === "json") {
+    check("both volumes are read from the controller's LogicalDrives link", lv.length === 2 && lv[1].name === "System" && lv[0].name === "Logical Drive 01", JSON.stringify(lv.map((x) => x.name)));
+    check("the physical drives are still read next to them", d.storage?.drives.length === 1 && d.storage.drives[0].health === "OK");
+  }
+  check(`[${mode} login] the Data volume is shown as rebuilding, using the iLO web page`, lv[0]?.rebuilding === true && lv[0].state === "Degraded (rebuilding)", JSON.stringify(lv[0]));
+  check(`[${mode} login] it logged in once and sent the session key as a cookie`, f.seen.logins === 1 && f.seen.jsonCalls === 1 && f.seen.badCookie === 0, JSON.stringify(f.seen));
+  if (mode === "json") {
+    const al = inst.alerts(d).conditions;
+    const r = al.find((x) => x.key === "logical:0");
+    check("the rebuilding volume raises a warning, not a critical alert", r?.severity === "warning" && /rebuilding/.test(r.title), JSON.stringify(r));
+    check("the healthy volume raises nothing", !al.some((x) => x.key === "logical:1"));
+    const t = await inst.actions.find((a) => a.id === "web-status-test").run();
+    check("the diagnostic says it worked and lists the steps, without the password", t.worked === true && t.volumes[0].logStatus === "LOG_REBUILDING" && t.steps.length >= 2 && !JSON.stringify(t).includes('"p"') && !/password|webkey1/i.test(JSON.stringify(t)), JSON.stringify(t));
+  }
+  await inst.dispose?.();
+  check(`[${mode} login] the session is closed again when the instance stops`, f.seen.logouts >= 1, JSON.stringify(f.seen));
+  f.srv.close();
+}
 
 // the web page cannot be used: the status stays as Redfish gave it, and nothing breaks
-const a2 = fake(false);
-const second = await load(a2);
+const none = fake("none");
+const second = await load(none);
 const lv2 = second.d.storage?.logical ?? [];
 check("when no session can be opened the volume is shown as degraded", lv2[0]?.state === "Degraded" && lv2[0].rebuilding === false, JSON.stringify(lv2[0]));
-check("and no alert says it is rebuilding, but the degraded one is still raised", second.inst.alerts(second.d).conditions.some((x) => x.key === "logical:0" && /degraded/.test(x.title)));
+check("and the degraded alert is still raised", second.inst.alerts(second.d).conditions.some((x) => x.key === "logical:0" && /degraded/.test(x.title)));
+const t2 = await second.inst.actions.find((a) => a.id === "web-status-test").run();
+check("the diagnostic says why: both logins refused", t2.worked === false && t2.steps.some((l) => /web login: HTTP 404/.test(l)) && t2.steps.some((l) => /redfish login: HTTP 404/.test(l)), JSON.stringify(t2.steps));
 await second.inst.dispose?.();
-a2.srv.close();
+none.srv.close();
 process.exit(ok ? 0 : 1);

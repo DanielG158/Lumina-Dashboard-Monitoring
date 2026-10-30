@@ -164,30 +164,52 @@ export default defineModule<Config>({
     // and closed when the instance stops. Any failure just leaves the status as Redfish reported it.
     let webKey: string | null = null;
     let webSession: string | null = null;
+    let webKind: "json" | "redfish" | null = null;
+    const trace: string[] = [];
+    const note = (line: string) => { trace.push(line); if (trace.length > 12) trace.shift(); };
     const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
     const rawCall = (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) =>
       httpRequestRaw(`${base}${path}`, { method, body, headers, verifyTls: config.verifyTls, fingerprint: config.fingerprint, timeoutMs: 15_000 });
     async function webLogin(): Promise<boolean> {
-      const res = await rawCall("POST", "/redfish/v1/Sessions/", { UserName: config.username, Password: config.password });
-      const token = first(res.headers["x-auth-token"]);
-      if (res.status >= 300 || !token) return false;
-      webKey = token;
-      const loc = first(res.headers.location);
-      try { webSession = loc ? new URL(loc, base).pathname : null; } catch { webSession = null; }
-      return true;
+      webKey = null;
+      webSession = null;
+      webKind = null;
+      // 1. the web interface's own login
+      try {
+        const res = await rawCall("POST", "/json/login_session", { method: "login", user_login: config.username, password: config.password });
+        let key: unknown;
+        try { key = JSON.parse(res.body)?.session_key; } catch { /* not JSON */ }
+        note(`web login: HTTP ${res.status}${typeof key === "string" && key ? ", key received" : ", no key"}`);
+        if (res.status < 300 && typeof key === "string" && key) { webKey = key; webKind = "json"; return true; }
+      } catch (err) { note(`web login: ${msg(err)}`); }
+      // 2. a Redfish session, whose token the web interface also accepts on many firmware versions
+      try {
+        const res = await rawCall("POST", "/redfish/v1/Sessions/", { UserName: config.username, Password: config.password });
+        const token = first(res.headers["x-auth-token"]);
+        note(`redfish login: HTTP ${res.status}${token ? ", token received" : ", no token"}`);
+        if (res.status < 300 && token) {
+          webKey = token;
+          webKind = "redfish";
+          const loc = first(res.headers.location);
+          try { webSession = loc ? new URL(loc, base).pathname : null; } catch { webSession = null; }
+          return true;
+        }
+      } catch (err) { note(`redfish login: ${msg(err)}`); }
+      return false;
     }
     async function webJson(path: string): Promise<Obj | null> {
       try {
         for (let attempt = 0; attempt < 2; attempt++) {
           if (!webKey && !(await webLogin())) return null;
           const res = await rawCall("GET", path, undefined, { cookie: `sessionKey=${webKey}` });
-          if (res.status === 200) {
-            try { return JSON.parse(res.body) as Obj; } catch { /* not JSON: treat like an expired session */ }
-          }
+          let parsed: Obj | null = null;
+          try { parsed = JSON.parse(res.body) as Obj; } catch { /* not JSON */ }
+          note(`${path}: HTTP ${res.status}${parsed ? "" : ", not JSON"}${parsed && !parsed.log_drive_arrays ? ", no volumes in it" : ""}`);
+          if (res.status === 200 && parsed?.log_drive_arrays) return parsed;
           webKey = null;
           webSession = null;
         }
-      } catch { /* the page is optional */ }
+      } catch (err) { note(`${path}: ${msg(err)}`); }
       return null;
     }
     function web(path: string): Promise<Obj | null> {
@@ -196,11 +218,16 @@ export default defineModule<Config>({
       return run;
     }
     async function webLogout() {
-      const path = webSession;
       const key = webKey;
+      const kind = webKind;
+      const path = webSession;
       webKey = null;
       webSession = null;
-      if (path && key) { try { await chain.then(() => rawCall("DELETE", path, undefined, { "x-auth-token": key })); } catch { /* it expires by itself */ } }
+      webKind = null;
+      if (!key) return;
+      try {
+        await chain.then(() => (kind === "redfish" && path ? rawCall("DELETE", path, undefined, { "x-auth-token": key }) : rawCall("POST", "/json/login_session", { method: "logout" }, { cookie: `sessionKey=${key}` })));
+      } catch { /* it expires by itself */ }
     }
 
     let lastPowerState: string | null = null;
@@ -593,6 +620,19 @@ export default defineModule<Config>({
         powerAction("shutdown", "Shut down (graceful)", "PushPowerButton", "On", true, { schedulable: true, downtimeMinutes: 30 }),
         powerAction("restart", "Restart (hard reset)", "ForceRestart", "On", true, { downtimeMinutes: 30 }),
         powerAction("force-off", "Force off", "ForceOff", "On", true, { downtimeMinutes: 30 }),
+        {
+          id: "web-status-test",
+          label: "Test reading the RAID rebuild status (for troubleshooting)",
+          minRole: "admin" as const,
+          dangerous: false,
+          async run() {
+            await webLogout();
+            trace.length = 0;
+            const page = await web("/json/health_drives");
+            const volumes = ((page?.log_drive_arrays ?? []) as Obj[]).flatMap((a) => (a.logical_drives ?? []) as Obj[]).map((v) => ({ name: v.name, status: v.status, logStatus: v.log_status }));
+            return { worked: volumes.length > 0, volumes, steps: [...trace] };
+          },
+        },
         {
           id: "storage-raw",
           label: "Show the raw RAID data (for troubleshooting)",

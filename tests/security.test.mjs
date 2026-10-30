@@ -109,8 +109,9 @@ r = await api("POST", "/api/instances", { j: admin, body: { moduleId: "apcupsd",
 await api("DELETE", `/api/instances/${encodeURIComponent("x'; DROP TABLE users;--")}`, { j: admin });
 r = await api("GET", "/api/users", { j: admin });
 check("SQL injection through an instance name leaves the database intact", r.status === 200 && r.data.length === 2);
-r = await api("POST", "/api/instances", { j: admin, raw: "x".repeat(3 * 1024 * 1024), headers: { "content-type": "application/json" } });
-check("oversized request body is refused", r.status === 413, `status ${r.status}`);
+// A server that refuses a huge body may answer 413 or simply cut the connection while the client is still sending; both are a refusal.
+r = await api("POST", "/api/instances", { j: admin, raw: "x".repeat(3 * 1024 * 1024), headers: { "content-type": "application/json" } }).catch((e) => ({ status: 0, dropped: String(e?.cause?.code ?? e) }));
+check("oversized request body is refused", r.status === 413 || (r.status === 0 && /EPIPE|ECONNRESET|UND_ERR/.test(r.dropped)), `status ${r.status}${r.dropped ? ` (${r.dropped})` : ""}`);
 r = await api("POST", "/api/instances", { j: admin, raw: "{not json", headers: { "content-type": "application/json" } });
 check("malformed JSON gives a clean 400", r.status === 400 && !/at .*\.js/.test(JSON.stringify(r.data)));
 r = await api("GET", "/api/nonexistent", { j: admin });
