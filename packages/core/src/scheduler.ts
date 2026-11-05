@@ -7,6 +7,12 @@ const nowS = () => Math.floor(Date.now() / 1000);
 /** How late a run may start and still count (the service may have been restarting). Later than this and it is skipped. */
 const GRACE = { once: 3600, daily: 1800, weekly: 1800 } as const;
 
+/**
+ * An action that stops or restarts something (marked dangerous) must never run late: if Lumina was restarting at the moment it was due,
+ * the person who set the time is not expecting it ten minutes later, perhaps in the middle of other work. It is skipped, and someone is told.
+ */
+const DANGEROUS_GRACE = 120;
+
 export interface DueRun {
   /** the occurrence time this run belongs to */
   at: number;
@@ -55,8 +61,14 @@ export class Scheduler {
       for (const s of this.store.schedules.list()) {
         const at = dueOccurrence(s, now);
         if (at === null) continue;
-        if (now - at > GRACE[s.repeat]) {
-          this.store.schedules.recordRun(s.id, at, "missed", `Skipped: it was due ${Math.round((now - at) / 60)} minutes ago and Lumina was not running or the instance was unavailable`);
+        const dangerous = this.registry.actionInfo(s.instanceId, s.actionId)?.dangerous === true;
+        if (now - at > (dangerous ? Math.min(GRACE[s.repeat], DANGEROUS_GRACE) : GRACE[s.repeat])) {
+          const why = `Skipped: it was due ${Math.round((now - at) / 60)} minutes ago and Lumina was not running or the instance was unavailable`;
+          this.store.schedules.recordRun(s.id, at, "missed", why);
+          if (dangerous) {
+            this.store.audit.add("scheduler", "scheduled-action-skipped", `${s.instanceId}/${s.actionId}`, `${s.name}: ${why}`.slice(0, 300), null);
+            await this.notify({ severity: "warning", resolved: false, instanceId: s.instanceId, title: `Scheduled action skipped: ${s.name}`, lines: [`${why}. It was not run late on purpose; run it by hand if it is still wanted.`] });
+          }
           continue;
         }
         await this.run(s, at);
@@ -73,6 +85,8 @@ export class Scheduler {
       const info = this.registry.actionInfo(s.instanceId, s.actionId);
       if (!info) throw new Error(`"${s.actionId}" is not available on ${s.instanceId} (is the instance paused?)`);
       if (!info.schedulable) throw new Error(`"${s.actionId}" cannot be scheduled`);
+      // Anyone watching the alerts should hear about a scheduled stop or restart before it happens, not find out afterwards.
+      if (info.dangerous) await this.notify({ severity: "warning", resolved: false, instanceId: s.instanceId, title: `Scheduled action starting: ${s.name}`, lines: [`${info.label} on ${s.instanceId}, as planned`] });
       const result = await this.registry.runAction(s.instanceId, s.actionId, s.input);
       message = result === undefined || result === null ? null : JSON.stringify(result).slice(0, 300);
       this.log.info({ schedule: s.name, instance: s.instanceId, action: s.actionId }, "scheduled action ran");

@@ -57,8 +57,11 @@ check("text that came from a device cannot inject markup", !E.renderEmail({ seve
 
 // 2. the daily rule
 check("reminder time parsing", E.parseRemindAt(undefined) === 480 && E.parseRemindAt("07:30") === 450 && E.parseRemindAt("off") === null && E.parseRemindAt("25:00") === null);
-const at = new Date(2026, 9, 31, 9, 0), before = new Date(2026, 9, 31, 7, 0);
-check("a reminder is due once per day, from the chosen time", E.reminderDue(at, 480, null) && !E.reminderDue(before, 480, null) && !E.reminderDue(at, 480, E.localDay(at)) && E.reminderDue(at, 480, "2026-10-30"));
+// dates are built from today, so the test does not depend on the calendar: tomorrow is after every alert's start
+const day = (n, h, m = 0) => { const d = new Date(); d.setDate(d.getDate() + n); d.setHours(h, m, 0, 0); return d; };
+const at = day(1, 9), before = day(1, 7);
+const dayBefore = (d) => { const x = new Date(d); x.setDate(x.getDate() - 1); return E.localDay(x); };
+check("a reminder is due once per day, from the chosen time", E.reminderDue(at, 480, null) && !E.reminderDue(before, 480, null) && !E.reminderDue(at, 480, E.localDay(at)) && E.reminderDue(at, 480, dayBefore(at)));
 const act = (sev, hoursAgo, extra = {}) => ({ id: 1, instanceId: "Prox-1", key: "k", severity: sev, title: "t", detail: null, since: Date.now() / 1000 - hoursAgo * 3600, suppressed: false, maintenance: null, ...extra });
 check("only problems that are still there a day later are repeated", E.persisting([act("critical", 30), act("critical", 2), act("warning", 30), act("critical", 30, { suppressed: true })], "critical", Date.now()).length === 1);
 check("a channel set to warnings includes warnings too", E.persisting([act("critical", 30), act("warning", 30), act("info", 30)], "warning", Date.now()).length === 2);
@@ -71,11 +74,11 @@ const run = E.createReminders(store, () => [act("critical", 30), act("warning", 
 await run(before); check("before the chosen time nothing is sent", mails.length === 0);
 await run(at); check("at the chosen time one email goes out, with only what the channel asked for", mails.length === 1 && /1 problem/.test(subject(mails[0])), mails.map(subject).join(" | "));
 check("it goes to every address", /^To: .*a@test.*b@test/m.test(mails[0]) || /a@test/.test(mails[0]) && /b@test/.test(mails[0]));
-await run(new Date(2026, 9, 31, 12, 0)); check("not again the same day", mails.length === 1);
-await run(new Date(2026, 10, 1, 8, 5)); check("and again the next day while it is still not fixed", mails.length === 2);
+await run(day(1, 12)); check("not again the same day", mails.length === 1);
+await run(day(2, 8, 5)); check("and again the next day while it is still not fixed", mails.length === 2);
 const none = createNone();
 function createNone() { return E.createReminders({ ...store, settings: { get: () => null, set: () => {} } }, () => [], { warn: () => {} }); }
-mails.length = 0; await none(new Date(2026, 10, 2, 9, 0)); check("nothing to report means no email", mails.length === 0);
+mails.length = 0; await none(day(3, 9)); check("nothing to report means no email", mails.length === 0);
 
 // 4. a real server mails a new problem at once
 const dir = mkdtempSync(join(tmpdir(), "lumina-mail-"));
