@@ -21,7 +21,7 @@ const tls = { key: readFileSync(join(dir, "k.pem")), cert: readFileSync(join(dir
 
 // a Proxmox node: both have a VM 101
 const pveFake = (node, cpu, running101) => {
-  const state = { running101 };
+  const state = { running101, posts: [] };
   const guests = () => [
     { type: "qemu", id: "qemu/101", vmid: 101, name: `web-${node}`, node, status: state.running101 ? "running" : "stopped", cpu: 0.02, mem: 1e9, maxmem: 2e9, maxdisk: 2e10, uptime: 5000, template: 0 },
     { type: "lxc", id: "lxc/102", vmid: 102, name: `db-${node}`, node, status: "running", cpu: 0, mem: 1e8, maxmem: 1e9, maxdisk: 8e9, uptime: 5000, template: 0 },
@@ -32,6 +32,7 @@ const pveFake = (node, cpu, running101) => {
     q.on("end", () => {
       const send = (code, obj) => { s.statusCode = code; s.setHeader("content-type", "application/json"); s.end(JSON.stringify(obj)); };
       const p = q.url.replace("/api2/json", "");
+      if (q.method === "POST") { state.posts.push(p); return send(200, { data: "UPID:fake" }); }
       if (p === "/nodes") return send(200, { data: [{ node, status: "online", cpu, mem: 2e9, maxmem: 8e9, disk: 1e9, maxdisk: 1e10, uptime: 100 }] });
       if (p === "/cluster/resources") return send(200, { data: [...guests(), ...storages] });
       if (p === "/cluster/backup") return send(200, { data: [] });
@@ -130,6 +131,26 @@ await page.waitForTimeout(300);
 check("Collapse all closes every card", (await page.locator('button.card-title[aria-expanded="true"]').count()) === 0);
 await page.getByRole("button", { name: /^Needs attention/ }).click();
 check("Needs attention keeps the ones with a problem", (await cards()) >= 1 && (await cards()) < 5, String(await cards()));
+await ctx.close();
+
+// ---- stopping a guest needs its name typed; a protected host has no stop buttons ----
+({ ctx, page } = await open("instances"));
+const hostA = page.locator("section.inst", { hasText: "Host A" }).first();
+await hostA.locator(".card-title").first().click();
+await page.waitForTimeout(1200);
+let answer = "wrong name";
+page.on("dialog", (d) => { if (d.type() === "prompt") void d.accept(answer); else void d.accept(); });
+const row = hostA.locator("tr", { hasText: "db-pve-a" }).first();
+await row.getByRole("button", { name: "Stop" }).click();
+await page.waitForTimeout(1200);
+check("typing the wrong name stops nothing", pveA.state.posts.length === 0, pveA.state.posts.join());
+answer = "db-pve-a";
+await row.getByRole("button", { name: "Stop" }).click();
+await page.waitForTimeout(1500);
+check("typing the guest's name sends the stop, for that guest only", pveA.state.posts.length === 1 && /\/lxc\/102\/status\/stop$/.test(pveA.state.posts[0]) && pveB.state.posts.length === 0, pveA.state.posts.join());
+await hostA.getByRole("button", { name: "Protect", exact: true }).click();
+await page.waitForTimeout(1500);
+check("after Protect the card says so and has no Stop or Reboot buttons", /protected/.test(await hostA.locator(".card-title").first().innerText()) && (await hostA.getByRole("button", { name: "Stop" }).count()) === 0 && (await hostA.getByRole("button", { name: "Reboot" }).count()) === 0);
 await ctx.close();
 
 // ---- Add: a free name is suggested ----

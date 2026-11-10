@@ -35,6 +35,8 @@ export interface InstanceState {
   minIntervalMs: number;
   customInterval: boolean;
   position: number;
+  /** an admin locked this instance: nothing on it can be stopped, restarted or deleted from Lumina */
+  protected: boolean;
 }
 
 interface RunningInstance {
@@ -67,6 +69,8 @@ export class ModuleRegistry {
   private running = new Map<string, RunningInstance>();
   private meta = new Map<string, Meta>();
   redact: (s: InstanceState) => InstanceState = (s) => s;
+  /** Set by the core: instances an admin has locked against stop/restart/delete actions. */
+  isProtected: (instanceId: string) => boolean = () => false;
   onPoll: (info: PollInfo) => void = () => undefined;
   onRemoved: (instanceId: string) => void = () => undefined;
 
@@ -271,6 +275,7 @@ export class ModuleRegistry {
       minIntervalMs: def.minPollIntervalMs ?? DEFAULT_MIN_MS,
       customInterval: meta.intervalMs !== null,
       position: meta.position,
+      protected: this.isProtected(meta.instanceId),
     };
   }
 
@@ -291,6 +296,8 @@ export class ModuleRegistry {
     if (!entry) throw new Error(`instance not running: ${instanceId}`);
     const action = entry.instance.actions.find((a) => a.id === actionId);
     if (!action) throw new Error(`unknown action: ${actionId}`);
+    // Checked here so it holds for the buttons, the API and scheduled actions alike.
+    if (action.dangerous && this.isProtected(instanceId)) throw Object.assign(new Error(`${instanceId} is protected: "${action.label}" is switched off for it. An admin can unlock it on its card.`), { statusCode: 403 });
     const parsed = action.input ? action.input.parse(input) : input;
     const result = await action.run(parsed, {
       instanceId,

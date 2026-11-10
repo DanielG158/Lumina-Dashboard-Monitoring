@@ -113,6 +113,17 @@ a "Send test" button, and shows its last error. Webhook URLs and tokens are stor
 
 **RAID rebuilds on iLO 4.** The iLO's Redfish API only says "Warning" for a volume that is rebuilding. When a volume is not healthy, Lumina asks the iLO's own web page data (`/json/health_drives`) for the real status and shows "Degraded (rebuilding)" or "Degraded (ready to rebuild)". This opens one login session on the iLO (with the same account), reuses it, and closes it when the instance stops; if it cannot be opened, the volume is simply shown as "Degraded". No percentage is available.
 
+**Safety around stopping things.** Lumina never stops, restarts or powers off anything by itself; only a signed-in operator or admin pressing a button, or a schedule an admin created, can. Three guards sit on top of that:
+- *Type the name.* Stop and reboot of a guest, and shutdown, hard reset and force-off of a server, ask you to type the machine's name first.
+- *Protect.* An admin can press **Protect** on any card. Every action marked dangerous (stop, reboot, shutdown, hard reset, force-off, deleting Cloudflare records) is then refused for that instance: the buttons disappear, the API answers 403, and a schedule fails with the reason. It follows a rename and is written to the audit log.
+- *No late runs.* A scheduled stop, reboot or shutdown that is more than 2 minutes late is skipped (see Scheduled actions).
+
+**One alert when the network goes.** When at least three devices and at least half of all enabled ones stop answering at the same time, Lumina raises a single critical alert ("N of M devices stopped answering at once") on the pseudo-instance "Lumina" and raises no further per-device "unreachable" alerts until it is over; devices that are still down afterwards are then reported by name. The one or two devices that failed before the pattern was clear keep their own alert.
+
+**Proxmox under load.** Requests to Proxmox wait up to 15 seconds and the first request of each poll is tried twice, so a host that answers slowly while it stops or starts a guest is not shown as unreachable.
+
+**Access token expiry.** A new access token expires after 30 days, 90 days (default), a year, or never. An expired token is refused with a message saying so; tokens created before this existed never expire.
+
 **Email.** Fields: SMTP server, port, security (`starttls` default, `tls` or `none`), optional username and password, from address, one or more
 recipients, the daily reminder time, an optional link to Lumina and whether to check the server certificate. A new problem is mailed as soon as
 it is confirmed (after the usual number of polls); a message groups the problems of one device. A problem that is still there at least 20 hours

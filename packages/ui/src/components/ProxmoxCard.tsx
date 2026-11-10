@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api } from "../api";
 import { useLumina } from "../context";
+import { confirmTyped } from "../confirm";
 import { Spark } from "./charts";
 import { CardShell, barClass, clamp, type CardProps } from "./CardShell";
 import { Section } from "./Section";
@@ -56,6 +57,8 @@ interface GuestTableProps {
   pending: string | null;
   maxAgeDays: number;
   canOperate: boolean;
+  /** the instance is protected: no stop or reboot buttons */
+  locked?: boolean;
   onAction: (op: "start" | "stop" | "reboot", g: PveGuest) => void;
   onDialog: (kind: "snapshot" | "backup", g: PveGuest) => void;
 }
@@ -71,7 +74,7 @@ function backupCell(g: PveGuest, maxAgeDays: number) {
   return g.backupCovered ? <span style={{ color: "var(--warn)" }}>none found</span> : <span className="sub">not in a job</span>;
 }
 
-function GuestTable({ id, title, guests, pending, maxAgeDays, canOperate, onAction, onDialog }: GuestTableProps) {
+function GuestTable({ id, title, guests, pending, maxAgeDays, canOperate, locked, onAction, onDialog }: GuestTableProps) {
   const running = guests.filter((g) => g.status === "running").length;
   const sorted = [...guests].sort((a, b) => a.node.localeCompare(b.node) || a.vmid - b.vmid);
   return (
@@ -107,8 +110,8 @@ function GuestTable({ id, title, guests, pending, maxAgeDays, canOperate, onActi
                 {canOperate && <td>
                   <div className="actions">
                     {!g.template && !up && <button className="btn sm" disabled={!!pending} onClick={() => onAction("start", g)}>{busy("start") ? "…" : "Start"}</button>}
-                    {!g.template && up && <button className="btn sm" disabled={!!pending} onClick={() => onAction("reboot", g)}>{busy("reboot") ? "…" : "Reboot"}</button>}
-                    {!g.template && up && <button className="btn sm danger" disabled={!!pending} onClick={() => onAction("stop", g)}>{busy("stop") ? "…" : "Stop"}</button>}
+                    {!g.template && up && !locked && <button className="btn sm" disabled={!!pending} onClick={() => onAction("reboot", g)}>{busy("reboot") ? "…" : "Reboot"}</button>}
+                    {!g.template && up && !locked && <button className="btn sm danger" disabled={!!pending} onClick={() => onAction("stop", g)}>{busy("stop") ? "…" : "Stop"}</button>}
                     {!g.template && up && g.consoleUrl && <a className="btn sm" href={g.consoleUrl} target="_blank" rel="noopener noreferrer" title="Open the console in Proxmox (you sign in there)">Console</a>}
                     {!g.template && <button className="btn sm" disabled={!!pending} title="Take a snapshot" onClick={() => onDialog("snapshot", g)}>Snapshot</button>}
                     {!g.template && <button className="btn sm" disabled={!!pending} title="Back up now" onClick={() => onDialog("backup", g)}>Backup</button>}
@@ -229,7 +232,7 @@ export function ProxmoxCard(props: CardProps) {
   }
 
   async function run(op: "start" | "stop" | "reboot", g: PveGuest) {
-    if (op !== "start" && !confirm(`${op} ${g.name} (${g.vmid})?`)) return;
+    if (op !== "start" && !confirmTyped(`${op === "stop" ? "Stop" : "Reboot"} ${g.name} (${g.type === "qemu" ? "VM" : "CT"} ${g.vmid}) on ${g.node}?`, g.name)) return;
     setPending(`${g.vmid}:${op}`);
     try {
       await api.action(instance.instanceId, op, { node: g.node, type: g.type, vmid: g.vmid });
@@ -306,8 +309,8 @@ export function ProxmoxCard(props: CardProps) {
             : <>Backup warnings are off for this Proxmox.<button className="btn sm" disabled={pending === "backup-warnings"} onClick={() => void backupWarnings(true)}>Turn on</button></>}
         </div>
       )}
-      {vms.length > 0 && <GuestTable id={sid("vms")} title="Virtual machines" guests={vms} pending={pending} maxAgeDays={data.backupPolicy?.maxAgeDays ?? 0} canOperate={can.operate} onAction={run} onDialog={(kind, guest) => setDialog({ kind, guest })} />}
-      {cts.length > 0 && <GuestTable id={sid("cts")} title="Containers" guests={cts} pending={pending} maxAgeDays={data.backupPolicy?.maxAgeDays ?? 0} canOperate={can.operate} onAction={run} onDialog={(kind, guest) => setDialog({ kind, guest })} />}
+      {vms.length > 0 && <GuestTable id={sid("vms")} title="Virtual machines" guests={vms} pending={pending} maxAgeDays={data.backupPolicy?.maxAgeDays ?? 0} canOperate={can.operate} locked={instance.protected === true} onAction={run} onDialog={(kind, guest) => setDialog({ kind, guest })} />}
+      {cts.length > 0 && <GuestTable id={sid("cts")} title="Containers" guests={cts} pending={pending} maxAgeDays={data.backupPolicy?.maxAgeDays ?? 0} canOperate={can.operate} locked={instance.protected === true} onAction={run} onDialog={(kind, guest) => setDialog({ kind, guest })} />}
 
       {data.storage.length > 0 && (
         <Section id={sid("storage")} title="Storage" count={data.storage.length}>

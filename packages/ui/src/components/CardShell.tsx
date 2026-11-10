@@ -72,6 +72,7 @@ export function CardShell({ instance, tag, children, historyPrefer }: CardProps 
           <span className={`dot ${instance.status}`} />
           {instance.instanceId}
           <span className="tag">{tag}</span>
+          {instance.protected && <span className="tag" title="Protected: nothing on it can be stopped, restarted or deleted from Lumina" style={{ borderColor: "var(--accent)" }}>protected</span>}
           <span className="chevron" style={{ marginLeft: 2 }}>{open ? "▾" : "▸"}</span>
         </button>
         <span className="card-summary">{summarize(instance)}</span>
@@ -85,6 +86,11 @@ export function CardShell({ instance, tag, children, historyPrefer }: CardProps 
               <button className="btn sm" disabled={busy} onClick={() => run("toggle", async () => { await api.setEnabled(instance.instanceId, !instance.enabled); await reloadInstances(); })}>
                 {instance.enabled ? "Pause" : "Resume"}
               </button>
+              <button className="btn sm" disabled={busy} title={instance.protected ? "Allow stop, restart and delete actions on this instance again" : "Switch off every stop, restart, shutdown and delete action for this instance (buttons, API and schedules)"}
+                onClick={() => {
+                  if (instance.protected && !confirm(`Unprotect "${instance.instanceId}"? Its stop, restart and shutdown buttons come back.`)) return;
+                  void run("protect", async () => { await api.setProtected(instance.instanceId, !instance.protected); await reloadInstances(); notify(instance.protected ? "Unprotected" : "Protected: stop, restart and delete actions are switched off"); });
+                }}>{instance.protected ? "Unprotect" : "Protect"}</button>
               <button className="btn sm icon" title="Move up" disabled={busy || idx <= 0} onClick={() => move(-1)}>▲</button>
               <button className="btn sm icon" title="Move down" disabled={busy || idx === ids.length - 1} onClick={() => move(1)}>▼</button>
               <button className="btn sm" onClick={() => edit(instance.instanceId)}>Edit</button>

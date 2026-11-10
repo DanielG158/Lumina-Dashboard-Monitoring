@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
+import { confirmTyped } from "../confirm";
 import { useLumina } from "../context";
 import { Spark } from "./charts";
 import { CardShell, barClass, clamp, type CardProps } from "./CardShell";
@@ -72,12 +73,13 @@ const POWER_CONFIRM: Record<string, string> = {
 export function IloCard(props: CardProps) {
   const d = props.instance.data as IloData | null;
   const { can } = useLumina();
+  const locked = props.instance.protected === true;
   const [busy, setBusy] = useState<string | null>(null);
   const notify = useLumina().notify;
 
   async function power(action: string, label: string) {
     const warning = POWER_CONFIRM[action];
-    if (warning && !confirm(`${warning}\n\nServer: ${d?.hostName ?? props.instance.instanceId}`)) return;
+    if (warning && !confirmTyped(warning, props.instance.instanceId)) return;
     setBusy(action);
     try {
       await api.action(props.instance.instanceId, action, {});
@@ -116,9 +118,9 @@ export function IloCard(props: CardProps) {
               <div className="sub">{d.sku ?? ""}{d.serial ? ` · S/N ${d.serial}` : ""}</div>
               <div className="actions" style={{ justifyContent: "flex-start", margin: "8px 0 2px", flexWrap: "wrap" }}>
                 {can.operate && d.powerState === "Off" && <button className="btn sm primary" disabled={!!busy} onClick={() => power("power-on", "Power on")}>{busy === "power-on" ? "…" : "Power on"}</button>}
-                {can.operate && d.powerState === "On" && <button className="btn sm" disabled={!!busy} onClick={() => power("shutdown", "Shutdown")}>{busy === "shutdown" ? "…" : "Shut down"}</button>}
-                {can.operate && d.powerState === "On" && <button className="btn sm danger" disabled={!!busy} onClick={() => power("restart", "Hard reset")}>{busy === "restart" ? "…" : "Hard reset"}</button>}
-                {can.operate && d.powerState === "On" && <button className="btn sm danger" disabled={!!busy} onClick={() => power("force-off", "Force off")}>{busy === "force-off" ? "…" : "Force off"}</button>}
+                {can.operate && !locked && d.powerState === "On" && <button className="btn sm" disabled={!!busy} onClick={() => power("shutdown", "Shutdown")}>{busy === "shutdown" ? "…" : "Shut down"}</button>}
+                {can.operate && !locked && d.powerState === "On" && <button className="btn sm danger" disabled={!!busy} onClick={() => power("restart", "Hard reset")}>{busy === "restart" ? "…" : "Hard reset"}</button>}
+                {can.operate && !locked && d.powerState === "On" && <button className="btn sm danger" disabled={!!busy} onClick={() => power("force-off", "Force off")}>{busy === "force-off" ? "…" : "Force off"}</button>}
               </div>
               {d.hostOs && <div className="sub" title={d.hostOs.description ?? ""}>{d.hostName ? `${d.hostName} · ` : ""}{d.hostOs.name}</div>}
             </div>

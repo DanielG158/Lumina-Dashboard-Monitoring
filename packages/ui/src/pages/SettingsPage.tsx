@@ -225,13 +225,14 @@ function Tokens() {
   const [list, setList] = useState<Awaited<ReturnType<typeof api.tokens>> | null>(null);
   const [name, setName] = useState("");
   const [detail, setDetail] = useState(false);
+  const [days, setDays] = useState("90");
   const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null);
   const load = () => api.tokens().then(setList).catch((e) => notify(err(e), true));
   useEffect(() => { void load(); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   async function create(e: FormEvent) {
     e.preventDefault();
-    try { const t = await api.createToken(name.trim(), detail); setFresh({ name: t.name, token: t.token }); setName(""); setDetail(false); await load(); } catch (x) { notify(err(x), true); }
+    try { const t = await api.createToken(name.trim(), detail, days === "never" ? null : Number(days)); setFresh({ name: t.name, token: t.token }); setName(""); setDetail(false); await load(); } catch (x) { notify(err(x), true); }
   }
   return (
     <div className="stack" style={{ maxWidth: 760 }}>
@@ -246,17 +247,18 @@ function Tokens() {
       )}
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Name</th><th>Created</th><th>Last used</th><th className="num">Actions</th></tr></thead>
+          <thead><tr><th>Name</th><th>Created</th><th>Last used</th><th>Expires</th><th className="num">Actions</th></tr></thead>
           <tbody>
             {list?.map((t) => (
               <tr key={t.id}>
                 <td>{t.name}{t.detail && <span className="tag" style={{ marginLeft: 6 }} title="Can read everything a signed-in user sees (read-only)">full detail</span>}</td>
                 <td className="sub">{new Date(t.createdAt * 1000).toLocaleDateString()}{t.createdBy ? ` · ${t.createdBy}` : ""}</td>
                 <td className="sub">{t.lastUsed ? new Date(t.lastUsed * 1000).toLocaleString() : "never"}</td>
+                <td className="sub" style={{ color: t.expiresAt && t.expiresAt * 1000 < Date.now() ? "var(--bad)" : t.expiresAt && t.expiresAt * 1000 - Date.now() < 14 * 86400_000 ? "var(--warn)" : undefined }}>{t.expiresAt ? (t.expiresAt * 1000 < Date.now() ? "expired " : "") + new Date(t.expiresAt * 1000).toLocaleDateString() : "never"}</td>
                 <td><div className="actions"><button className="btn sm danger" onClick={async () => { if (confirm(`Revoke "${t.name}"? Whatever uses it stops working immediately.`)) { try { await api.deleteToken(t.id); await load(); } catch (x) { notify(err(x), true); } } }}>Revoke</button></div></td>
               </tr>
             ))}
-            {list?.length === 0 && <tr><td colSpan={4} className="sub">No tokens yet.</td></tr>}
+            {list?.length === 0 && <tr><td colSpan={5} className="sub">No tokens yet.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -264,6 +266,7 @@ function Tokens() {
         <h3 style={{ margin: 0 }}>New token</h3>
         <div className="row" style={{ alignItems: "flex-end" }}>
           <Field label="Name" help="Who or what will use it, for example Home Lumina."><input className="field" required maxLength={60} value={name} onChange={(e) => setName(e.target.value)} /></Field>
+          <Field label="Expires" help="After this the token stops working and a new one has to be made."><select className="field" value={days} onChange={(e) => setDays(e.target.value)}><option value="30">in 30 days</option><option value="90">in 90 days</option><option value="365">in 1 year</option><option value="never">never</option></select></Field>
           <button className="btn primary">Create</button>
         </div>
         <label className="row" style={{ alignItems: "flex-start", gap: 8 }}>

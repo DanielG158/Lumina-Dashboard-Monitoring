@@ -118,7 +118,7 @@ function client(cfg: Config) {
         {
           method,
           agent,
-          timeout: payload ? 20_000 : 8000,
+          timeout: payload ? 20_000 : 15_000,
           headers: payload ? { ...headers, "content-type": "application/json", "content-length": Buffer.byteLength(payload) } : headers,
         },
         (res) => {
@@ -228,7 +228,13 @@ export default defineModule<Config>({
           }
         };
 
-        const nodes = await pve.nodes();
+        // A host that is busy stopping or starting a guest can answer slowly for a moment. One slow answer must not make the
+        // whole Proxmox look offline, so the first request is tried twice.
+        const nodes = await pve.nodes().catch(async (err) => {
+          if (!/timed out|ECONNRESET|socket hang up|EPIPE/i.test(err instanceof Error ? err.message : String(err))) throw err;
+          await new Promise((r) => setTimeout(r, 1500));
+          return pve.nodes();
+        });
         healthy = true;
 
         const [resources, tasks, clusterStatus, clusterLog, backupJobs, ha] = await Promise.all([

@@ -115,7 +115,29 @@ const forecasts = () => {
 };
 const metrics = new MetricsRecorder(store);
 
+const protectedSet = () => new Set(store.settings.get<string[]>("protected", []));
+registry.isProtected = (id) => protectedSet().has(id);
+
+// When most devices stop answering in the same moment, the likely cause is this Lumina's own network (a router restart, a
+// cable), not every device at once. Then one alert says so, and no new "unreachable" alert is raised per device until it is over.
+const SITE = "Lumina";
+const unreachableNow = new Set<string>();
+let outage = false;
+function massOutage(down: number, total: number): boolean {
+  return total >= 3 && down >= 3 && down * 2 >= total;
+}
+
 registry.onPoll = (info) => {
+  if (info.status === "disconnected") unreachableNow.add(info.instanceId); else unreachableNow.delete(info.instanceId);
+  const enabledIds = registry.snapshot().filter((i) => i.enabled).map((i) => i.instanceId);
+  for (const id of [...unreachableNow]) if (!enabledIds.includes(id)) unreachableNow.delete(id);
+  outage = Date.now() - startedAt >= startupGraceMs && massOutage(unreachableNow.size, enabledIds.length);
+  if (outage || engine.forInstance(SITE).length > 0) {
+    void engine.evaluate(SITE, {
+      conditions: outage ? [{ key: "network-down", severity: "critical", title: `${unreachableNow.size} of ${enabledIds.length} devices stopped answering at once`, detail: "This Lumina's own network connection is the likely cause (router, switch, cable or VPN). Devices are reported one by one again when it is back." }] : [],
+      down: false, error: null,
+    });
+  }
   const ok = info.conditions !== null;
   if (ok) metrics.record(info.instanceId, info.metrics);
   if (info.moduleId === "netcheck") {
@@ -123,9 +145,10 @@ registry.onPoll = (info) => {
     if (sp?.at) store.speed.add({ instanceId: info.instanceId, ts: Math.floor(sp.at / 1000), down: sp.downMbps, up: sp.upMbps, latency: sp.latencyMs, error: sp.error });
   }
   const derived = ok && info.moduleId === "proxmox" ? forecastConditions(forecasts(), info.instanceId, settings().forecastWarnDays) : [];
-  void engine.evaluate(info.instanceId, { conditions: info.conditions ? [...info.conditions, ...derived] : null, down: info.status === "disconnected" && Date.now() - startedAt >= startupGraceMs, error: info.error, unknown: info.unknown });
+  void engine.evaluate(info.instanceId, { conditions: info.conditions ? [...info.conditions, ...derived] : null, down: info.status === "disconnected" && !outage && Date.now() - startedAt >= startupGraceMs, error: info.error, unknown: info.unknown });
 };
 registry.onRemoved = (id) => {
+  unreachableNow.delete(id);
   engine.clearInstance(id);
   metrics.forget(id);
   store.speed.remove(id);
@@ -177,6 +200,7 @@ app.addHook("onRequest", async (req, reply) => {
   const bearer = /^Bearer (lum_[A-Za-z0-9_-]{20,100})$/.exec(String(req.headers.authorization ?? ""))?.[1];
   if (bearer && req.method === "GET" && ANONYMOUS_READS.some((re) => re.test(path))) {
     const t = store.tokens.find(sha256(bearer));
+    if (t && t.expiresAt !== null && t.expiresAt <= Date.now() / 1000) return reply.code(401).send({ error: "This access token has expired. Create a new one on this Lumina under Settings, Access tokens." });
     if (t) {
       if (t.detail) fullDetail.add(req);
       if (!t.lastUsed || Date.now() / 1000 - t.lastUsed > 60) store.tokens.touch(t.id);
@@ -219,7 +243,7 @@ const InstanceName = z.string().trim().min(1).max(64).regex(/^[^\u0000-\u001f/\\
 const PollSeconds = z.number().min(1).max(3600).nullable().optional();
 
 app.post("/api/instances", { preHandler: admin }, async (req, reply) => {
-  const body = z.object({ moduleId: z.string(), instanceId: InstanceName, config: z.record(z.unknown()), pollIntervalSec: PollSeconds }).parse(req.body);
+  const body = z.object({ moduleId: z.string(), instanceId: InstanceName, config: z.record(z.string(), z.unknown()), pollIntervalSec: PollSeconds }).parse(req.body);
   if (store.instances.get(body.instanceId)) return reply.code(409).send({ error: `An instance named "${body.instanceId}" already exists` });
   const intervalMs = body.pollIntervalSec ? registry.clampInterval(body.moduleId, body.pollIntervalSec * 1000) : null;
   await registry.start(body.moduleId, body.instanceId, body.config, { intervalMs });
@@ -243,7 +267,7 @@ app.put("/api/instances/:id", { preHandler: admin }, async (req, reply) => {
   const { id } = req.params as { id: string };
   const row = store.instances.get(id);
   if (!row) return reply.code(404).send({ error: "instance not found" });
-  const body = z.object({ config: z.record(z.unknown()), pollIntervalSec: PollSeconds }).parse(req.body);
+  const body = z.object({ config: z.record(z.string(), z.unknown()), pollIntervalSec: PollSeconds }).parse(req.body);
   const merged = { ...body.config };
   for (const f of registry.fieldsOf(row.moduleId)) {
     if (f.type === "password" && (merged[f.key] === undefined || merged[f.key] === "")) merged[f.key] = row.config[f.key];
@@ -269,6 +293,7 @@ app.put("/api/instances/:id/name", { preHandler: admin }, async (req, reply) => 
   metrics.flush(); // minute-by-minute history still in memory is saved under the old name first, so it moves too
   await registry.drop(id);
   store.instances.rename(id, name);
+  if (protectedSet().has(id)) store.settings.set("protected", [...protectedSet()].map((x) => (x === id ? name : x)));
   engine.rename(id, name);
   await registry.start(row.moduleId, name, row.config, { intervalMs: row.pollIntervalMs, enabled: row.enabled, position: row.position });
   audit(req, "instance-renamed", id, `${id} -> ${name}`);
@@ -282,9 +307,23 @@ app.delete("/api/instances/:id", { preHandler: admin }, async (req) => {
   const { id } = req.params as { id: string };
   await registry.remove(id);
   store.instances.delete(id);
+  store.settings.set("protected", [...protectedSet()].filter((x) => x !== id));
   audit(req, "instance-removed", id);
   io.emit("instances:reordered");
   return { ok: true };
+});
+
+// Protect: no stop, restart, shutdown or delete action can be run on this instance from Lumina (buttons, API and schedules) until an admin unlocks it.
+app.post("/api/instances/:id/protected", { preHandler: admin }, async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const { on } = z.object({ on: z.boolean() }).parse(req.body);
+  if (!store.instances.get(id)) return reply.code(404).send({ error: "instance not found" });
+  const set = protectedSet();
+  if (on) set.add(id); else set.delete(id);
+  store.settings.set("protected", [...set]);
+  audit(req, on ? "instance-protected" : "instance-unprotected", id);
+  io.emit("instances:reordered");
+  return { ok: true, protected: on };
 });
 
 app.post("/api/instances/:id/enabled", { preHandler: admin }, async (req, reply) => {
@@ -348,11 +387,12 @@ app.get("/api/instances/:id/metric-keys", async (req) => store.metrics.keys((req
 // Access tokens: let another Lumina (or a script) read what an anonymous visitor can see (or, with "full detail", what a signed-in user sees), without public viewing being on.
 app.get("/api/tokens", { preHandler: admin }, async () => store.tokens.list());
 app.post("/api/tokens", { preHandler: admin }, async (req) => {
-  const { name, detail } = z.object({ name: z.string().trim().min(1).max(60), detail: z.boolean().default(false) }).parse(req.body);
+  const { name, detail, days } = z.object({ name: z.string().trim().min(1).max(60), detail: z.boolean().default(false), days: z.number().int().min(1).max(3650).nullable().default(null) }).parse(req.body);
   const token = `lum_${randomBytes(24).toString("base64url")}`;
-  const id = store.tokens.create(name, sha256(token), req.user?.username ?? null, detail);
-  audit(req, "token-created", name, detail ? "full detail" : null);
-  return { id, name, token, detail };
+  const expiresAt = days ? Math.floor(Date.now() / 1000) + days * 86400 : null;
+  const id = store.tokens.create(name, sha256(token), req.user?.username ?? null, detail, expiresAt);
+  audit(req, "token-created", name, [detail ? "full detail" : "", days ? `expires in ${days} days` : "never expires"].filter(Boolean).join(", "));
+  return { id, name, token, detail, expiresAt };
 });
 app.delete("/api/tokens/:id", { preHandler: admin }, async (req, reply) => {
   const { id } = z.object({ id: z.coerce.number().int() }).parse(req.params);
@@ -407,7 +447,7 @@ const secretKeys = (type: string) => new Set((CHANNEL_TYPES.find((t) => t.id ===
 const ChannelBody = z.object({
   name: z.string().trim().min(1).max(64),
   type: z.string(),
-  config: z.record(z.string()),
+  config: z.record(z.string(), z.string()),
   enabled: z.boolean().default(true),
   minSeverity: z.enum(["info", "warning", "critical"]).default("warning"),
 });
@@ -600,7 +640,7 @@ app.post("/api/backup", { preHandler: admin }, async (req, reply) => {
     .send(bundle);
 });
 
-const RestoreBody = z.object({ passphrase: z.string().min(1).max(200), bundle: z.record(z.unknown()), setupCode: z.string().optional() });
+const RestoreBody = z.object({ passphrase: z.string().min(1).max(200), bundle: z.record(z.string(), z.unknown()), setupCode: z.string().optional() });
 
 async function stageFromBundle(raw: unknown) {
   const body = RestoreBody.parse(raw);
@@ -699,7 +739,7 @@ const SchedBody = z.object({
   name: z.string().trim().min(1).max(80),
   instanceId: z.string().min(1).max(64),
   actionId: z.string().min(1).max(64),
-  input: z.record(z.unknown()).default({}),
+  input: z.record(z.string(), z.unknown()).default({}),
   repeat: z.enum(["once", "daily", "weekly"]),
   atTs: z.number().int().min(0),
 });

@@ -34,7 +34,7 @@ export const EnergySettingsSchema = z
         /** Part of the server's power kept for the Proxmox host itself instead of the guests. */
         hostPct: z.number().min(0).max(100).default(10),
       })
-      .default({}),
+      .prefault({}),
     fixedMonthly: z.number().min(0).max(1e12).default(0),
     taxPercent: z.number().min(0).max(100).default(0),
     budgetMonthly: z.number().min(0).max(1e12).nullable().default(null),
@@ -46,7 +46,7 @@ export const EnergySettingsSchema = z
         decimals: z.number().int().min(0).max(4).default(0),
         position: z.enum(["before", "after"]).default("before"),
       })
-      .default({}),
+      .prefault({}),
     tariff: z
       .object({
         type: z.enum(["flat", "tou", "tiered"]).default("flat"),
@@ -61,7 +61,7 @@ export const EnergySettingsSchema = z
           .default({ defaultPrice: 1661, rules: [] }),
         tiers: z.array(z.object({ upToKwh: z.number().positive().max(1e9).nullable(), price: z.number().min(0).max(1e9) })).min(1).max(8).default([{ upToKwh: null, price: 1661 }]),
       })
-      .default({}),
+      .prefault({}),
   })
   .superRefine((s, ctx) => {
     for (const [path, value] of [["timezone", s.timezone]] as const) {

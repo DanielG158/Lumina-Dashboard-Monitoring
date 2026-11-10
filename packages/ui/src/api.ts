@@ -35,6 +35,8 @@ export interface InstanceUpdate {
   minIntervalMs: number;
   customInterval: boolean;
   position: number;
+  /** an admin locked it: no stop, restart or delete actions */
+  protected?: boolean;
   /** set on the cards a linked Lumina draws for its devices */
   remote?: { label: string; alerts: { severity: string; title: string; detail: string | null }[] };
 }
@@ -289,6 +291,7 @@ export const api = {
     req("/instances", json("POST", { moduleId, instanceId, config, pollIntervalSec })),
   getConfig: (id: string) => req<{ moduleId: string; config: Record<string, unknown>; pollIntervalSec: number | null }>(`/instances/${enc(id)}/config`),
   renameInstance: (id: string, name: string) => req<{ ok: boolean; name: string }>(`/instances/${enc(id)}/name`, json("PUT", { name })),
+  setProtected: (id: string, on: boolean) => req(`/instances/${enc(id)}/protected`, json("POST", { on })),
   updateInstance: (id: string, config: unknown, pollIntervalSec?: number | null) => req(`/instances/${enc(id)}`, json("PUT", { config, pollIntervalSec })),
   removeInstance: (id: string) => req(`/instances/${enc(id)}`, { method: "DELETE" }),
   setEnabled: (id: string, enabled: boolean) => req(`/instances/${enc(id)}/enabled`, json("POST", { enabled })),
@@ -320,8 +323,8 @@ export const api = {
   testChannel: (id: number) => req<{ ok: boolean; error?: string }>(`/channels/${id}/test`, { method: "POST" }),
 
   users: () => req<UserInfo[]>("/users"),
-  tokens: () => req<{ id: number; name: string; createdAt: number; lastUsed: number | null; createdBy: string | null; detail: boolean }[]>("/tokens"),
-  createToken: (name: string, detail = false) => req<{ id: number; name: string; token: string }>("/tokens", json("POST", { name, detail })),
+  tokens: () => req<{ id: number; name: string; createdAt: number; lastUsed: number | null; createdBy: string | null; detail: boolean; expiresAt: number | null }[]>("/tokens"),
+  createToken: (name: string, detail = false, days: number | null = null) => req<{ id: number; name: string; token: string }>("/tokens", json("POST", { name, detail, days })),
   deleteToken: (id: number) => req(`/tokens/${id}`, { method: "DELETE" }),
   addUser: (username: string, password: string, role: string) => req("/users", json("POST", { username, password, role })),
   updateUser: (id: number, patch: { role?: string; password?: string }) => req(`/users/${id}`, json("PUT", patch)),

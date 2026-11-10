@@ -14,6 +14,7 @@
 - **Proxmox.** Nodes, VMs and containers, storage, disks, backup jobs, tasks. Start, stop, reboot, **Snapshot**, **Back up now** and a **Console** link for each guest. Warns when a guest has no recent backup, and forecasts when a storage volume will fill up.
 - **HP iLO 4.** Power, temperatures, fans (with 24-hour charts), power supplies, drives, memory, logs, and power on/off buttons.
 - **Network monitoring.** Ping, TCP, DNS and web checks with latency and packet-loss history, an optional internet speed test, and SNMP link status and traffic for pfSense, OPNsense, OpenWrt and managed switches.
+- **Safe by default.** Stopping or restarting anything needs the machine's name typed; **Protect** switches those actions off for an instance entirely; when most devices go quiet at once you get one "network is down" alert, not one per device.
 - **Several sites.** Add **Another Lumina** to see a second site's devices and alerts here, using a read-only access token, with no VPN session needed.
 - **UPS (apcupsd), Uptime Kuma, Cloudflare tunnels.** Status, history, alerts. Cloudflare: hostname health and certificate dates, DNS records, traffic, dynamic DNS and Access logins.
 - **Energy and cost.** Turns the UPS or iLO power reading into kWh and money for any day, range or billing cycle. Fully adjustable tariff (flat, time-of-day, progressive blocks), currency, tax, billing day and budget. Shows the cost per VM and container, projects the month, and has a helper to calibrate against your electricity meter.
