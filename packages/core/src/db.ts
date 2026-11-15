@@ -418,7 +418,7 @@ export function openDb(path: string) {
       recent: (limit: number) => (db.prepare("SELECT * FROM events ORDER BY id DESC LIMIT ?").all(limit) as RawEvent[]).map(toEvent),
       purge: (before: number) => db.prepare("DELETE FROM events WHERE state = 'resolved' AND ts < ?").run(before),
       /** History with filters, newest first, in pages (`before` is the id of the last row already shown). */
-      search: (f: { limit: number; before?: number; instance?: string; severity?: string; state?: string; q?: string; since?: number }) => {
+      search: (f: { limit: number; before?: number; instance?: string; severity?: string; state?: string; q?: string; since?: number; titleOnly?: boolean }) => {
         const where: string[] = [];
         const args: (string | number)[] = [];
         if (f.instance) { where.push("instance_id = ?"); args.push(f.instance); }
@@ -426,9 +426,9 @@ export function openDb(path: string) {
         if (f.state) { where.push("state = ?"); args.push(f.state); }
         if (f.since) { where.push("ts >= ?"); args.push(f.since); }
         if (f.q) {
-          where.push("(title LIKE ? ESCAPE '\\' OR detail LIKE ? ESCAPE '\\' OR key LIKE ? ESCAPE '\\')");
           const like = `%${f.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-          args.push(like, like, like);
+          if (f.titleOnly) { where.push("title LIKE ? ESCAPE '\\'"); args.push(like); }
+          else { where.push("(title LIKE ? ESCAPE '\\' OR detail LIKE ? ESCAPE '\\' OR key LIKE ? ESCAPE '\\')"); args.push(like, like, like); }
         }
         const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
         const total = (db.prepare(`SELECT COUNT(*) AS n FROM events ${clause}`).get(...args) as { n: number }).n;

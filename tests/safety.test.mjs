@@ -76,7 +76,7 @@ try {
   const active = async () => (await api("GET", "/api/alerts")).data.active;
   check("four devices connect and nothing is wrong", await until(async () => (await api("GET", "/api/instances")).data.filter((i) => i.status === "connected").length === 4) && (await active()).length === 0);
   upsOn = false;
-  check("when they all stop answering, one alert says the network is the likely cause", await until(async () => (await active()).some((a) => a.instanceId === "Lumina" && a.key === "network-down" && a.severity === "critical"), 60000), JSON.stringify((await active()).map((a) => `${a.instanceId}:${a.key}`)));
+  check("when they all stop answering, one alert says the network is the likely cause", await until(async () => (await active()).some((a) => a.instanceId === "This Lumina" && a.key === "network-down" && a.severity === "critical"), 60000), JSON.stringify((await active()).map((a) => `${a.instanceId}:${a.key}`)));
   await sleep(8000);
   const un = (await active()).filter((a) => a.key === "unreachable").length;
   check("and not one alert per device (at most the two that failed before it was clear)", un <= 2, `${un} unreachable alerts`);

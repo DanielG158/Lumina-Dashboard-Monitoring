@@ -38,7 +38,7 @@ export function AlertsPage() {
                     <td style={{ whiteSpace: "normal" }}><b>{a.title}</b>{a.suppressed && <span className="tag" style={{ marginLeft: 6 }}>in maintenance</span>}{a.detail && <div className="sub">{a.detail}</div>}</td>
                     <td>{a.instanceId}</td>
                     <td className="sub">{ago(a.since * 1000)}</td>
-                    {L.can.operate && <td><div className="actions"><button className="btn sm" disabled={busy === a.key} title="Stop raising and notifying about this until you unmute it" onClick={() => act(a.key, () => api.mute(a.key))}>Mute</button></div></td>}
+                    {L.can.operate && <td><div className="actions"><button className="btn sm" disabled={busy === a.key} title={`Stop raising and notifying about this on ${a.instanceId} until you unmute it`} onClick={() => act(a.key, () => api.mute(a.key, a.instanceId))}>Mute</button></div></td>}
                   </tr>
                 ))}
               </tbody>
@@ -51,12 +51,18 @@ export function AlertsPage() {
         <section className="panel">
           <div className="panel-head"><h2>Muted <span className="tag">{muted.length}</span></h2></div>
           <div className="chips">
-            {muted.map((k) => (
-              <span key={k} className="pill">
-                <span>{k}</span>
-                {L.can.operate && <button className="btn sm" style={{ padding: "0 7px" }} disabled={busy === k} onClick={() => act(k, () => api.unmute(k))}>Unmute</button>}
-              </span>
-            ))}
+            {muted.map((k) => {
+              // "instance<TAB>key" is a mute on one device; a bare key is an older mute that applies everywhere
+              const t = k.indexOf("\t");
+              const inst = t > 0 ? k.slice(0, t) : undefined;
+              const key = t > 0 ? k.slice(t + 1) : k;
+              return (
+                <span key={k} className="pill">
+                  <span>{key} <span className="sub">{inst ? `on ${inst}` : "on every device"}</span></span>
+                  {L.can.operate && <button className="btn sm" style={{ padding: "0 7px" }} disabled={busy === k} onClick={() => act(k, () => api.unmute(key, inst))}>Unmute</button>}
+                </span>
+              );
+            })}
           </div>
         </section>
       )}

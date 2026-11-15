@@ -312,8 +312,8 @@ export const api = {
     for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== "") p.set(k, String(v));
     return req<{ events: EventRow[]; hasMore: boolean; total: number; instances: string[] }>(`/alerts/history?${p}`);
   },
-  mute: (key: string) => req("/alerts/mute", json("POST", { key })),
-  unmute: (key: string) => req(`/alerts/mute?key=${enc(key)}`, { method: "DELETE" }),
+  mute: (key: string, instanceId?: string) => req("/alerts/mute", json("POST", { key, instanceId })),
+  unmute: (key: string, instanceId?: string) => req(`/alerts/mute?key=${enc(key)}${instanceId ? `&instanceId=${enc(instanceId)}` : ""}`, { method: "DELETE" }),
 
   channelTypes: () => req<ChannelType[]>("/channel-types"),
   channels: () => req<Channel[]>("/channels"),

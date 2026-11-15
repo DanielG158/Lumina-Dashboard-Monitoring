@@ -58,6 +58,7 @@ export const CHANNEL_TYPES: ChannelType[] = [
       { key: "from", label: "From address", type: "text", required: true, placeholder: "lumina@example.com" },
       { key: "to", label: "Send to", type: "text", required: true, placeholder: "you@example.com, team@example.com", help: "One or more addresses, separated by commas." },
       { key: "remindAt", label: "Daily reminder at", type: "text", placeholder: "08:00", help: "While a problem is still not fixed a day later, it is mailed again every day at this time (24-hour clock). Type off for no reminders." },
+      { key: "timezone", label: "Time zone for the reminder (optional)", type: "text", placeholder: "Asia/Jakarta", help: "Leave empty to use the time zone chosen on the Energy page, or the server's clock if none was chosen there." },
       { key: "url", label: "Link to Lumina (optional)", type: "text", placeholder: "https://192.168.11.15", help: "Adds an Open Lumina link to every email." },
       { key: "verifyTls", label: "Check the server certificate", type: "text", placeholder: "yes", help: "Type no only for a mail server with a self-signed certificate." },
     ],

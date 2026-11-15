@@ -70,9 +70,13 @@ await page.selectOption('select[aria-label="Period"]', "all");
 await page.getByRole("button", { name: "Show 50 more" }).click(); await page.waitForTimeout(600);
 await page.getByRole("button", { name: "Show 50 more" }).click().catch(() => undefined); await page.waitForTimeout(600);
 check("all 150 can be reached and the button goes away", (await rowsShown()) === 150 && (await page.getByRole("button", { name: "Show 50 more" }).count()) === 0, String(await rowsShown()));
+// this page is opened without signing in: the search looks at titles only, so hidden text cannot be probed
 await page.fill('input[aria-label="Search alert history"]', "1I:3:4");
 await page.waitForTimeout(1200);
-check("searching narrows the list to the matching alert and shows its details", (await rowsShown()) === 1 && /drive 1I:3:4 failed/.test(await page.locator("body").innerText()));
+check("a visitor who is not signed in cannot search the details", (await rowsShown()) === 0, String(await rowsShown()));
+await page.fill('input[aria-label="Search alert history"]', "100% full");
+await page.waitForTimeout(1200);
+check("searching narrows the list to the matching alert", (await rowsShown()) === 1 && /100% full \/var_log/.test(await page.locator("body").innerText()));
 await page.fill('input[aria-label="Search alert history"]', "");
 await page.selectOption('select[aria-label="Instance"]', "Prox-1");
 await page.selectOption('select[aria-label="Severity"]', "critical");

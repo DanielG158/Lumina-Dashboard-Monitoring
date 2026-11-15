@@ -44,6 +44,8 @@ export class Scheduler {
     private registry: ModuleRegistry,
     private notify: (n: Notification) => Promise<void>,
     private log: { warn: (o: object, m: string) => void; info: (o: object, m: string) => void },
+    /** called when a scheduled action that takes something down on purpose has been sent, so its own alerts can be muted for a while */
+    private planned: (instanceId: string, label: string, minutes: number) => void = () => {},
   ) {}
 
   start() {
@@ -88,6 +90,7 @@ export class Scheduler {
       // Anyone watching the alerts should hear about a scheduled stop or restart before it happens, not find out afterwards.
       if (info.dangerous) await this.notify({ severity: "warning", resolved: false, instanceId: s.instanceId, title: `Scheduled action starting: ${s.name}`, lines: [`${info.label} on ${s.instanceId}, as planned`] });
       const result = await this.registry.runAction(s.instanceId, s.actionId, s.input);
+      if (info.plannedDowntimeMinutes) this.planned(s.instanceId, info.label, info.plannedDowntimeMinutes);
       message = result === undefined || result === null ? null : JSON.stringify(result).slice(0, 300);
       this.log.info({ schedule: s.name, instance: s.instanceId, action: s.actionId }, "scheduled action ran");
     } catch (err) {

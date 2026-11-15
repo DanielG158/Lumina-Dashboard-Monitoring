@@ -22,7 +22,7 @@ import cloudflare from "@lumina/module-cloudflare";
 import uptimeKuma from "@lumina/module-uptime-kuma";
 import { openDb } from "./db.js";
 import { ModuleRegistry } from "./registry.js";
-import { AlertEngine } from "./alerts.js";
+import { AlertEngine, muteEntry, type ActiveAlert } from "./alerts.js";
 import { MetricsRecorder, RANGES } from "./metrics.js";
 import { CHANNEL_TYPES, createNotifier, deliver } from "./notify.js";
 import { createReminders } from "./email.js";
@@ -88,12 +88,25 @@ const io = new SocketServer(app.server, {
   },
 });
 io.use((socket, next) => {
-  const session = auth.authenticate(socket.request.headers.cookie);
-  if (session) socket.data.user = session.user;
-  else if (!settings().publicView && !openAccess()) return next(new Error("unauthorized"));
-  void socket.join((session || openAccess()) ? "auth" : "anon");
-  next();
+  try {
+    const session = auth.authenticate(socket.request.headers.cookie);
+    if (session) { socket.data.user = session.user; socket.data.cookie = socket.request.headers.cookie; }
+    else if (!settings().publicView && !openAccess()) return next(new Error("unauthorized"));
+    void socket.join((session || openAccess()) ? "auth" : "anon");
+    next();
+  } catch {
+    next(new Error("unauthorized"));
+  }
 });
+// A live connection outlives the sign-in that opened it. Once a minute, connections whose session has ended (sign-out, expiry,
+// password change, deleted account) are closed; the page reconnects by itself and then gets only what an anonymous viewer may see.
+const socketCheck = setInterval(() => {
+  for (const socket of io.of("/").sockets.values()) {
+    if (!socket.rooms.has("auth")) continue;
+    const ok = socket.data.cookie ? auth.stillValid(socket.data.cookie as string) : openAccess();
+    if (!ok) socket.disconnect(true);
+  }
+}, 60_000);
 app.addHook("onClose", (_, done) => void io.close(() => done()));
 
 const audit = (req: FastifyRequest, action: string, target: string | null = null, detail: string | null = null, user: string | null = null) =>
@@ -120,7 +133,9 @@ registry.isProtected = (id) => protectedSet().has(id);
 
 // When most devices stop answering in the same moment, the likely cause is this Lumina's own network (a router restart, a
 // cable), not every device at once. Then one alert says so, and no new "unreachable" alert is raised per device until it is over.
-const SITE = "Lumina";
+const SITE = "This Lumina";
+/** Names Lumina uses for its own alerts (electricity budget, its own network); no device may be called that. */
+const RESERVED_NAMES = new Set(["lumina", "this lumina"]);
 const unreachableNow = new Set<string>();
 let outage = false;
 function massOutage(down: number, total: number): boolean {
@@ -239,7 +254,7 @@ app.get("/api/modules", async () => registry.list());
 app.get("/api/token-info", async (req) => ({ detail: fullDetail.has(req) }));
 app.get("/api/instances", async (req) => registry.snapshot(!req.user && !fullDetail.has(req)));
 
-const InstanceName = z.string().trim().min(1).max(64).regex(/^[^\u0000-\u001f/\\]+$/, "Name can't contain slashes or control characters");
+const InstanceName = z.string().trim().min(1).max(64).regex(/^[^\u0000-\u001f/\\]+$/, "Name can't contain slashes or control characters").refine((n) => !RESERVED_NAMES.has(n.toLowerCase()), "That name is used by Lumina itself; pick another");
 const PollSeconds = z.number().min(1).max(3600).nullable().optional();
 
 app.post("/api/instances", { preHandler: admin }, async (req, reply) => {
@@ -294,6 +309,7 @@ app.put("/api/instances/:id/name", { preHandler: admin }, async (req, reply) => 
   await registry.drop(id);
   store.instances.rename(id, name);
   if (protectedSet().has(id)) store.settings.set("protected", [...protectedSet()].map((x) => (x === id ? name : x)));
+  store.settings.set("muted", settings().muted.map((m) => (m.startsWith(`${id}\t`) ? `${name}\t${m.slice(id.length + 1)}` : m)));
   engine.rename(id, name);
   await registry.start(row.moduleId, name, row.config, { intervalMs: row.pollIntervalMs, enabled: row.enabled, position: row.position });
   audit(req, "instance-renamed", id, `${id} -> ${name}`);
@@ -308,6 +324,7 @@ app.delete("/api/instances/:id", { preHandler: admin }, async (req) => {
   await registry.remove(id);
   store.instances.delete(id);
   store.settings.set("protected", [...protectedSet()].filter((x) => x !== id));
+  store.settings.set("muted", settings().muted.filter((m) => !m.startsWith(`${id}\t`)));
   audit(req, "instance-removed", id);
   io.emit("instances:reordered");
   return { ok: true };
@@ -357,12 +374,14 @@ app.post("/api/instances/:id/refresh", { preHandler: operator }, async (req, rep
 app.post("/api/instances/:id/actions/:action", { preHandler: operator }, async (req, reply) => {
   const { id, action } = req.params as { id: string; action: string };
   const info = registry.actionInfo(id, action);
-  if (info?.minRole === "admin" && req.user!.role !== "admin") return reply.code(403).send({ error: "This action needs the admin role" });
+  if (!info) return reply.code(404).send({ error: registry.state(id) ? `"${action}" is not available on ${id} (is it paused?)` : "instance not found" });
+  if (info.minRole === "admin" && req.user!.role !== "admin") return reply.code(403).send({ error: "This action needs the admin role" });
   const result = await registry.runAction(id, action, req.body ?? {});
-  audit(req, info?.dangerous ? "action-dangerous" : "action", `${id}/${action}`, JSON.stringify(req.body ?? {}).slice(0, 300));
-  if (info?.plannedDowntimeMinutes) {
-    // Taking something down on purpose should not page anyone: mute alerts for a while (it can be ended early).
-    maintenance.startNow({ scope: ["*"], minutes: info.plannedDowntimeMinutes, name: `Planned: ${info.label}`, note: `Opened automatically by ${id}/${action}`, createdBy: req.user!.username });
+  audit(req, info.dangerous ? "action-dangerous" : "action", `${id}/${action}`, JSON.stringify(req.body ?? {}).slice(0, 300));
+  if (info.plannedDowntimeMinutes) {
+    // Taking something down on purpose should not page anyone: its own alerts are muted for a while (it can be ended early).
+    // Only that device: a real failure somewhere else must still be reported.
+    maintenance.startNow({ scope: [id], minutes: info.plannedDowntimeMinutes, name: `Planned: ${info.label}`, note: `Opened automatically by ${id}/${action}`, createdBy: req.user!.username });
     audit(req, "maintenance-auto", id, `${info.plannedDowntimeMinutes} min after ${action}`);
   }
   return { ok: true, result };
@@ -401,7 +420,24 @@ app.delete("/api/tokens/:id", { preHandler: admin }, async (req, reply) => {
   return { ok: true };
 });
 
-app.get("/api/alerts", async () => ({ active: engine.active(), recent: store.events.recent(100), muted: settings().muted }));
+// Anonymous viewers (and normal access tokens) see that something is wrong and where, but not raw error text (it names internal
+// addresses) and not keys built from serial numbers. Full-detail tokens and signed-in users see everything.
+const SECRET_DETAIL = /^(unreachable$|read-failed:|remote:)/;
+const SERIAL_KEY = /^(drive|drive-temp|disk-health|disk-wear):/;
+function forViewer<T extends { key: string; detail: string | null }>(a: T): T {
+  return {
+    ...a,
+    key: SERIAL_KEY.test(a.key) ? `${a.key.slice(0, a.key.indexOf(":"))}:${sha256(a.key).slice(0, 12)}` : a.key,
+    detail: SECRET_DETAIL.test(a.key) ? null : a.detail,
+  };
+}
+const seesAll = (req: FastifyRequest) => Boolean(req.user) || fullDetail.has(req);
+
+app.get("/api/alerts", async (req) => {
+  const active: ActiveAlert[] = engine.active();
+  const recent = store.events.recent(100);
+  return seesAll(req) ? { active, recent, muted: settings().muted } : { active: active.map(forViewer), recent: recent.map(forViewer), muted: [] };
+});
 
 // The full alert history, with filters and paging. Anonymous visitors may read it, exactly like the recent list.
 app.get("/api/alerts/history", async (req) => {
@@ -414,7 +450,10 @@ app.get("/api/alerts/history", async (req) => {
     q: z.string().trim().max(100).optional(),
     since: z.coerce.number().int().min(0).optional(),
   }).parse(req.query);
-  return { ...store.events.search({ ...q, q: q.q || undefined }), instances: store.events.instances() };
+  if (seesAll(req)) return { ...store.events.search({ ...q, q: q.q || undefined }), instances: store.events.instances() };
+  // Searching would let a viewer test what the hidden text contains, so anonymous searches look at titles only.
+  const r = store.events.search({ ...q, q: q.q || undefined, titleOnly: true });
+  return { ...r, events: r.events.map(forViewer), instances: store.events.instances() };
 });
 
 // Internet speed test results, newest first. Readable like the other history.
@@ -424,19 +463,21 @@ app.get("/api/speedtests", async (req) => {
 });
 
 app.post("/api/alerts/mute", { preHandler: operator }, async (req) => {
-  const { key } = z.object({ key: z.string().min(1).max(200) }).parse(req.body);
+  // With an instance the mute applies to that device only; without one (older clients) to that alert everywhere.
+  const { key, instanceId } = z.object({ key: z.string().min(1).max(200), instanceId: z.string().min(1).max(64).optional() }).parse(req.body);
   const muted = new Set(settings().muted);
-  muted.add(key);
+  muted.add(instanceId ? muteEntry(instanceId, key) : key);
   store.settings.set("muted", [...muted]);
-  audit(req, "alert-muted", key);
+  audit(req, "alert-muted", instanceId ? `${instanceId}: ${key}` : key);
   io.emit("alerts:changed");
   return { ok: true };
 });
 
 app.delete("/api/alerts/mute", { preHandler: operator }, async (req) => {
-  const { key } = z.object({ key: z.string().min(1) }).parse(req.query);
-  store.settings.set("muted", settings().muted.filter((k) => k !== key));
-  audit(req, "alert-unmuted", key);
+  const { key, instanceId } = z.object({ key: z.string().min(1), instanceId: z.string().min(1).max(64).optional() }).parse(req.query);
+  const entry = instanceId ? muteEntry(instanceId, key) : key;
+  store.settings.set("muted", settings().muted.filter((k) => k !== entry));
+  audit(req, "alert-unmuted", instanceId ? `${instanceId}: ${key}` : key);
   io.emit("alerts:changed");
   return { ok: true };
 });
@@ -734,7 +775,9 @@ app.delete("/api/maintenance/:id", { preHandler: admin }, async (req) => {
 
 // ---- scheduled actions -----------------------------------------------------------------------------------------
 
-const scheduler = new Scheduler(store, registry, (n) => notifier.send(n), app.log);
+const scheduler = new Scheduler(store, registry, (n) => notifier.send(n), app.log, (instanceId, label, minutes) => {
+  maintenance.startNow({ scope: [instanceId], minutes, name: `Planned: ${label}`, note: "Opened automatically by a scheduled action", createdBy: "scheduler" });
+});
 const SchedBody = z.object({
   name: z.string().trim().min(1).max(80),
   instanceId: z.string().min(1).max(64),
@@ -921,6 +964,7 @@ let energyTimer: NodeJS.Timeout | undefined;
 
 async function shutdown() {
   clearInterval(housekeeping);
+  clearInterval(socketCheck);
   clearInterval(reminderTimer);
   if (energyTimer) clearInterval(energyTimer);
   scheduler.stop();
@@ -928,6 +972,18 @@ async function shutdown() {
   await app.close();
   process.exit(0);
 }
+// One request that trips a bug must not take monitoring down for everyone. The error is logged and Lumina carries on; if errors
+// keep coming (five within a minute) something is really broken, and it exits so the service manager starts it afresh.
+const strayErrors: number[] = [];
+function stray(kind: string, err: unknown) {
+  app.log.error({ err }, `${kind}; carrying on`);
+  const now = Date.now();
+  strayErrors.push(now);
+  while (strayErrors.length && now - strayErrors[0] > 60_000) strayErrors.shift();
+  if (strayErrors.length >= 5) { app.log.error("too many unexpected errors in a minute; restarting"); process.exit(1); }
+}
+process.on("unhandledRejection", (err) => stray("unhandled rejection", err));
+process.on("uncaughtException", (err) => stray("uncaught exception", err));
 process.on("SIGTERM", () => void shutdown());
 process.on("SIGINT", () => void shutdown());
 

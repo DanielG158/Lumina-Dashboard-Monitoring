@@ -120,9 +120,21 @@ export function parseRemindAt(v: string | undefined): number | null {
   return Number(m[1]) * 60 + Number(m[2]);
 }
 
-/** True once per day, from the chosen time on. */
-export function reminderDue(now: Date, at: number, lastDay: string | null): boolean {
-  return now.getHours() * 60 + now.getMinutes() >= at && lastDay !== localDay(now);
+/** The calendar day and minutes after midnight in a time zone (or the server's own when none is given or it is not a real zone). */
+export function wallClock(now: Date, tz?: string | null): { day: string; minutes: number } {
+  if (tz) {
+    try {
+      const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now).map((x) => [x.type, x.value]));
+      return { day: `${p.year}-${p.month}-${p.day}`, minutes: Number(p.hour) * 60 + Number(p.minute) };
+    } catch { /* not a time zone this system knows: fall back to the server's clock */ }
+  }
+  return { day: localDay(now), minutes: now.getHours() * 60 + now.getMinutes() };
+}
+
+/** True once per day, from the chosen time on (in the given time zone). */
+export function reminderDue(now: Date, at: number, lastDay: string | null, tz?: string | null): boolean {
+  const w = wallClock(now, tz);
+  return w.minutes >= at && lastDay !== w.day;
 }
 
 /** Problems that have already been announced and are still there a day later. */
@@ -138,9 +150,11 @@ export function createReminders(store: Store, active: () => ActiveAlert[], log: 
       const at = parseRemindAt(ch.config.remindAt);
       if (at === null) continue;
       const key = `reminder:${ch.id}`;
-      if (!reminderDue(now, at, store.settings.get<string | null>(key, null))) continue;
+      // The time is meant in the channel's own time zone; without one, the zone chosen on the Energy page; without that, the server's.
+      const tz = ch.config.timezone?.trim() || store.settings.get<{ timezone?: string | null } | null>("energy", null)?.timezone || null;
+      if (!reminderDue(now, at, store.settings.get<string | null>(key, null), tz)) continue;
       // Mark the day first: a send that fails is not retried every minute, and a restart never repeats the mail.
-      store.settings.set(key, localDay(now));
+      store.settings.set(key, wallClock(now, tz).day);
       const items = persisting(active(), ch.minSeverity, now.getTime());
       if (!items.length) continue;
       const critical = worst(items);

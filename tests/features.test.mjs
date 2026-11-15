@@ -325,7 +325,7 @@ r = await api("POST", "/api/instances/ILOFAKE/actions/shutdown", { j: op, body: 
 check("shutting the server down from Lumina works", r.status === 200);
 r = await api("GET", "/api/maintenance", { j: admin });
 const auto = r.data.active.find((a) => /Planned/.test(a.name));
-check("...and automatically opens a 30-minute maintenance window for everything", auto && auto.scope[0] === "*" && near(auto.endsAt - r.data.now, 1800, 5), auto && auto.name);
+check("...and automatically opens a 30-minute maintenance window for that server only", auto && auto.scope.length === 1 && auto.scope[0] !== "*" && near(auto.endsAt - r.data.now, 1800, 5), auto && `${auto.name} ${JSON.stringify(auto.scope)}`);
 await api("POST", `/api/maintenance/${auto.id}/end`, { j: op });
 
 // ================= SCHEDULED ACTIONS =================

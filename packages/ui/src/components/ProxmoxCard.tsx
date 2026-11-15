@@ -112,7 +112,7 @@ function GuestTable({ id, title, guests, pending, maxAgeDays, canOperate, locked
                     {!g.template && !up && <button className="btn sm" disabled={!!pending} onClick={() => onAction("start", g)}>{busy("start") ? "…" : "Start"}</button>}
                     {!g.template && up && !locked && <button className="btn sm" disabled={!!pending} onClick={() => onAction("reboot", g)}>{busy("reboot") ? "…" : "Reboot"}</button>}
                     {!g.template && up && !locked && <button className="btn sm danger" disabled={!!pending} onClick={() => onAction("stop", g)}>{busy("stop") ? "…" : "Stop"}</button>}
-                    {!g.template && up && g.consoleUrl && <a className="btn sm" href={g.consoleUrl} target="_blank" rel="noopener noreferrer" title="Open the console in Proxmox (you sign in there)">Console</a>}
+                    {!g.template && up && g.consoleUrl && /^https?:\/\//i.test(g.consoleUrl) && <a className="btn sm" href={g.consoleUrl} target="_blank" rel="noopener noreferrer" title="Open the console in Proxmox (you sign in there)">Console</a>}
                     {!g.template && <button className="btn sm" disabled={!!pending} title="Take a snapshot" onClick={() => onDialog("snapshot", g)}>Snapshot</button>}
                     {!g.template && <button className="btn sm" disabled={!!pending} title="Back up now" onClick={() => onDialog("backup", g)}>Backup</button>}
                   </div>

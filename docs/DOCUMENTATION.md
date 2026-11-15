@@ -124,6 +124,16 @@ a "Send test" button, and shows its last error. Webhook URLs and tokens are stor
 
 **Access token expiry.** A new access token expires after 30 days, 90 days (default), a year, or never. An expired token is refused with a message saying so; tokens created before this existed never expire.
 
+**What anonymous viewers see of alerts.** With public viewing on (or a normal access token), alerts are listed with their title, device and age, but the raw error text of "unreachable" and "could not read" alerts and of a linked Lumina's alerts is removed (it names internal addresses), alert keys built from serial numbers are replaced by a short fingerprint, the mute list is empty, and the history search looks at titles only. Signed-in users and full-detail tokens see everything.
+
+**Mutes are per device.** Muting an alert on the Alerts page silences that alert on that device only, follows a rename and is removed with the device. Mutes made before this existed still apply to every device and are shown as "on every device".
+
+**Planned downtime.** Shutting down or resetting a server from its card, or by a schedule, opens a maintenance window for that server only (30 minutes, can be ended early), so a failure elsewhere is still reported.
+
+**Reminder time zone.** The daily email reminder time is read in the channel's own time zone if one is entered, otherwise in the time zone chosen on the Energy page, otherwise in the server's.
+
+**Staying up.** A malformed cookie or Origin header is treated as "not signed in". An unexpected error in one request is logged and Lumina carries on; five within a minute make it exit so the service manager restarts it. Live connections whose sign-in has ended (sign-out, expiry, password change, deleted account) are closed within a minute.
+
 **Email.** Fields: SMTP server, port, security (`starttls` default, `tls` or `none`), optional username and password, from address, one or more
 recipients, the daily reminder time, an optional link to Lumina and whether to check the server certificate. A new problem is mailed as soon as
 it is confirmed (after the usual number of polls); a message groups the problems of one device. A problem that is still there at least 20 hours

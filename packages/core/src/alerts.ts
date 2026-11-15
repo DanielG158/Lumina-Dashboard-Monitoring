@@ -34,6 +34,10 @@ export interface EngineSettings {
 
 const UNREACHABLE = "unreachable";
 
+/** A mute is stored as "key" (older ones: that alert on every device) or "instance<TAB>key" (that alert on one device). */
+export const muteEntry = (instanceId: string, key: string) => `${instanceId}\t${key}`;
+const isMuted = (set: Set<string>, instanceId: string, key: string) => set.has(key) || set.has(muteEntry(instanceId, key));
+
 export class AlertEngine {
   private firing = new Map<string, Tracked>();
   private pending = new Map<string, Pending>();
@@ -56,7 +60,7 @@ export class AlertEngine {
   active(): ActiveAlert[] {
     const muted = new Set(this.settings().muted);
     return [...this.firing.values()]
-      .filter((a) => !muted.has(a.key))
+      .filter((a) => !isMuted(muted, a.instanceId, a.key))
       .map(({ absent: _a, notified: _n, ...a }) => {
         const m = this.maintenance(a.instanceId);
         return { ...a, suppressed: m !== null, maintenance: m?.name ?? null };
@@ -90,7 +94,7 @@ export class AlertEngine {
 
     // Anything raised during maintenance that is still broken once the window is over is reported now.
     if (!maint && scopeAll) {
-      const catchUp = [...this.firing.values()].filter((a) => a.instanceId === instanceId && !a.notified && !mutedSet.has(a.key));
+      const catchUp = [...this.firing.values()].filter((a) => a.instanceId === instanceId && !a.notified && !isMuted(mutedSet, instanceId, a.key));
       if (catchUp.length) {
         for (const a of catchUp) { a.notified = true; this.store.events.setNotified(a.id); }
         await this.dispatch(instanceId, catchUp, [], "still active after maintenance");
@@ -98,7 +102,7 @@ export class AlertEngine {
     }
 
     for (const c of list) {
-      if (mutedSet.has(c.key)) continue;
+      if (isMuted(mutedSet, instanceId, c.key)) continue;
       const id = `${instanceId}\u0000${c.key}`;
       present.add(id);
       const existing = this.firing.get(id);
@@ -132,10 +136,10 @@ export class AlertEngine {
       if (a.instanceId !== instanceId || present.has(id) || isUnknown(a.key)) continue;
       if (!scopeAll && a.key !== UNREACHABLE) continue;
       a.absent += 1;
-      if (a.absent >= threshold(a.key) || mutedSet.has(a.key)) {
+      if (a.absent >= threshold(a.key) || isMuted(mutedSet, instanceId, a.key)) {
         this.store.events.resolve(a.id);
         this.firing.delete(id);
-        if (!mutedSet.has(a.key) && a.notified) resolved.push(a);
+        if (!isMuted(mutedSet, instanceId, a.key) && a.notified) resolved.push(a);
       }
     }
 

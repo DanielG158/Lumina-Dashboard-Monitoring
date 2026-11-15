@@ -26,7 +26,10 @@ export function parseCookies(header: string | undefined): Record<string, string>
   const out: Record<string, string> = {};
   for (const part of (header ?? "").split(";")) {
     const i = part.indexOf("=");
-    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+    if (i <= 0) continue;
+    const raw = part.slice(i + 1).trim();
+    // A cookie that is not valid percent-encoding is kept as it is: decoding must never throw on what a client sends.
+    try { out[part.slice(0, i).trim()] = decodeURIComponent(raw); } catch { out[part.slice(0, i).trim()] = raw; }
   }
   return out;
 }
@@ -95,6 +98,15 @@ export function createAuth(store: Store, idleMinutes: () => number) {
       return { user: { id: s.userId, username: s.username, role: s.role }, hash };
     },
 
+    /** Is this cookie still a valid session? Unlike authenticate() it does not count as activity, so it cannot keep a session alive. */
+    stillValid(cookieHeader: string | undefined): boolean {
+      const token = parseCookies(cookieHeader)[SESSION_COOKIE];
+      if (!token) return false;
+      const s = store.sessions.get(sha256(token));
+      const now = nowS();
+      return Boolean(s && s.expiresAt >= now && s.createdAt + ABSOLUTE_MAX_S >= now);
+    },
+
     destroy: (hash: string) => store.sessions.delete(hash),
     idleSeconds,
   };
@@ -115,10 +127,17 @@ export function registerAuthRoutes(
   openAccess: () => boolean,
   setupCode: { check: (code: unknown) => boolean; clear: () => void; required: () => boolean },
 ) {
+  // A lock belongs to the device that is guessing, never to the account: otherwise anyone who can reach the login page could
+  // keep an admin locked out by typing wrong passwords for their name.
+  //  - one device, any names: 10 failures in 15 minutes lock that device for 10 minutes
+  //  - one device, one name: 5 failures lock that device for that name
+  //  - one name, from many devices at once (a botnet): only after 50 failures is the name itself paused, as a last resort
   const ipThrottle = new Throttle(10, 15 * 60_000, 10 * 60_000);
-  const userThrottle = new Throttle(5, 15 * 60_000, 10 * 60_000);
+  const pairThrottle = new Throttle(5, 15 * 60_000, 10 * 60_000);
+  const nameThrottle = new Throttle(50, 15 * 60_000, 10 * 60_000);
 
-  const secureFlag = (req: FastifyRequest) => (req.protocol === "https" || req.headers["x-forwarded-proto"] === "https" ? "; Secure" : "");
+  // The proxy's word is taken only when the operator said there is a proxy in front (LUMINA_TRUST_PROXY=1).
+  const secureFlag = (req: FastifyRequest) => (req.protocol === "https" || (process.env.LUMINA_TRUST_PROXY === "1" && req.headers["x-forwarded-proto"] === "https") ? "; Secure" : "");
   const setCookie = (req: FastifyRequest, reply: FastifyReply, token: string, maxAge: number) =>
     reply.header("set-cookie", `${SESSION_COOKIE}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${secureFlag(req)}`);
   const publicUser = (u: { id: number; username: string; role: Role }) => ({ id: u.id, username: u.username, role: u.role });
@@ -152,7 +171,9 @@ export function registerAuthRoutes(
   app.post("/api/auth/login", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (req, reply) => {
     const body = z.object({ username: z.string().max(64), password: z.string().max(200) }).parse(req.body);
     const ip = clientIp(req);
-    const wait = Math.max(ipThrottle.locked(ip), userThrottle.locked(body.username.toLowerCase()));
+    const name = body.username.toLowerCase();
+    const pair = `${ip}\u0000${name}`;
+    const wait = Math.max(ipThrottle.locked(ip), pairThrottle.locked(pair), nameThrottle.locked(name));
     if (wait > 0) {
       audit(req, "login-blocked", body.username, `locked for ${wait}s`, body.username);
       return reply.code(429).send({ error: `Too many failed attempts. Try again in ${Math.ceil(wait / 60)} minute(s).` });
@@ -161,12 +182,13 @@ export function registerAuthRoutes(
     const ok = await verifyPassword(body.password, user?.passwordHash ?? null);
     if (!user || !ok) {
       ipThrottle.fail(ip);
-      userThrottle.fail(body.username.toLowerCase());
+      pairThrottle.fail(pair);
+      nameThrottle.fail(name);
       audit(req, "login-failed", body.username, null, body.username);
       return reply.code(401).send({ error: "Wrong username or password" });
     }
     ipThrottle.reset(ip);
-    userThrottle.reset(body.username.toLowerCase());
+    pairThrottle.reset(pair);
     audit(req, "login", user.username, null, user.username);
     return startSession(req, reply, user);
   });
@@ -174,7 +196,7 @@ export function registerAuthRoutes(
   app.post("/api/auth/logout", async (req, reply) => {
     if (req.sessionHash) auth.destroy(req.sessionHash);
     audit(req, "logout", req.user?.username ?? null);
-    reply.header("set-cookie", `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+    reply.header("set-cookie", `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secureFlag(req)}`);
     return { ok: true };
   });
 
