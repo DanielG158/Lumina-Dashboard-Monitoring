@@ -144,6 +144,11 @@ nothing is sent on days when nothing is outstanding. When a problem is fixed a "
 so a restart never repeats the email. The minimum severity of the channel decides what is mailed (choose *Critical only* to hear only about
 failed parts). Problems inside a maintenance window are left out of the reminder. The SMTP password is stored encrypted.
 
+**Acknowledge.** On the Alerts page an operator or admin can pick *Acknowledge…* on an active problem (for 4 hours, 24 hours, 7 days, or until it is fixed). It
+means "I know, I'm on it": the daily reminder emails skip that problem until the time is up, the problem stays listed with who acknowledged it, and
+nothing else changes. The alert is still raised on other channels as before, and when it is fixed the "Fixed" message is still sent. *Undo acknowledge* brings
+the reminders back. An acknowledgement ends by itself when the problem is fixed. Anonymous viewers see that an alert is acknowledged but not by whom.
+
 ## 4b. Maintenance, scheduled actions, backup age and storage forecast
 
 **Maintenance windows** (Maintenance tab). While a window covers an instance (or everything), its alerts are still recorded and shown, marked "in maintenance", but **nobody is notified**. When a window ends, anything still wrong is reported then ("still active after maintenance"), so nothing is lost; a problem that comes and goes entirely inside a window sends nothing. Operators can start a window now (15 min to a custom length) and end it early. Admins can schedule one-off or repeating (daily or weekly) windows. Ending a repeating window early skips only that occurrence. Repeating windows repeat every 24 hours or 7 days from their first start, so a daylight-saving change would shift them by an hour. Shutting down, or hard-resetting, the server from the iLO card automatically opens a 30-minute window for everything.
@@ -269,6 +274,7 @@ each instance card has a **History** section with a metric picker and 1 h / 6 h 
 - **Open access** ("Skip" on the first-run screen) makes everyone an admin until the first account is created. A warning banner shows meanwhile.
 - **First run:** a one-time setup code (printed by the installer, also in `/var/lib/lumina/setup-code` and the service log) is needed to create the first admin, skip setup, or restore. It is deleted once an account exists.
 - **Passwords** are hashed with scrypt. Sign-in is limited (20/min per address; 5 failures per user or 10 per address locks for 10 minutes). Sessions are random tokens stored hashed, in an HttpOnly, SameSite cookie (Secure over HTTPS), with an idle timeout (default 8 h) and a 7-day maximum.
+- **Two-factor sign-in (optional).** Each person can switch it on for their own account under Settings, My account: scan a QR code (or type the key) into an authenticator app, confirm one code, and save the 10 one-time recovery codes. From then on signing in needs the password and a 6-digit code. A code works once; a recovery code works once and is then gone. It is never required: accounts that do not turn it on sign in with the password only, and no setting forces it. Turning it off or making new recovery codes needs the password and a current code. An admin who must help someone who lost their phone and recovery codes can press *Reset 2-step* in Users, which turns it off for that account and signs it out everywhere. The secret is stored encrypted; recovery codes only as hashes.
 - **Credentials** for Proxmox, iLO and the rest are encrypted at rest (AES-256-GCM). The key is `lumina.key` in the data folder (mode 0600) or `LUMINA_SECRET_KEY`.
 - **Certificate pinning:** for devices with self-signed certificates, paste (or "Detect") the certificate fingerprint and Lumina only talks to a device presenting exactly that certificate.
 - **Audit log** (admin): sign-ins, failures, lockouts, every action, and every configuration change, with who and from where.
@@ -384,7 +390,8 @@ State-changing requests must be same-origin JSON.
 | `GET /health` | anyone | Liveness (`ok`, `uptime`) |
 | `GET /api/auth/status` | anyone | Setup state, current user, public view |
 | `POST /api/auth/setup`, `/skip-setup`, `/restore` | anyone, first run only, setup code | Create first admin, skip, restore |
-| `POST /api/auth/login`, `/logout`, `/password` | anyone / signed in | Session handling |
+| `POST /api/auth/login`, `/logout`, `/password` | anyone / signed in | Session handling (login takes an optional `code` for accounts with two-factor on) |
+| `GET /api/auth/2fa`; `POST /api/auth/2fa/setup`, `/enable`, `/disable`, `/recovery` | signed in | Optional two-factor sign-in for your own account |
 | `GET /api/modules` | anon | Module list with form fields |
 | `GET /api/instances` | anon (redacted) | All instances with live data |
 | `POST /api/instances` | admin | Add an instance |
@@ -395,6 +402,7 @@ State-changing requests must be same-origin JSON.
 | `POST /api/instances/:id/actions/:action` | op (some admin) | Run an action |
 | `GET /api/instances/:id/metrics`, `/metric-keys` | anon | History |
 | `GET /api/alerts`; `POST`/`DELETE /api/alerts/mute` | anon; op | Alerts and muting |
+| `POST`/`DELETE /api/alerts/ack` | op | Acknowledge an alert (stops its daily reminder emails) or undo |
 | `GET /api/maintenance` | anon (notes hidden) | Running and upcoming windows |
 | `POST /api/maintenance/start`, `/api/maintenance/:id/end` | op | Start now, end early |
 | `POST /api/maintenance`, `PUT`/`DELETE /api/maintenance/:id` | admin | Scheduled windows |

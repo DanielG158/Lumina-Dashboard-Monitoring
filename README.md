@@ -18,9 +18,9 @@
 - **Several sites.** Add **Another Lumina** to see a second site's devices and alerts here, using a read-only access token, with no VPN session needed.
 - **UPS (apcupsd), Uptime Kuma, Cloudflare tunnels.** Status, history, alerts. Cloudflare: hostname health and certificate dates, DNS records, traffic, dynamic DNS and Access logins.
 - **Energy and cost.** Turns the UPS or iLO power reading into kWh and money for any day, range or billing cycle. Fully adjustable tariff (flat, time-of-day, progressive blocks), currency, tax, billing day and budget. Shows the cost per VM and container, projects the month, and has a helper to calibrate against your electricity meter.
-- **Alerts.** Every module reports warnings on its own card. Notifications to email, Discord, Slack, Telegram, ntfy or any webhook. Maintenance windows and scheduled actions (snapshot at 2 a.m., power on at 7 a.m.) keep planned work from raising false alarms.
+- **Alerts.** Every module reports warnings on its own card. Notifications to email, Discord, Slack, Telegram, ntfy or any webhook. Maintenance windows and scheduled actions (snapshot at 2 a.m., power on at 7 a.m.) keep planned work from raising false alarms. **Acknowledge** a problem you are already working on and the daily reminder emails skip it.
 - **Access levels.** Anyone on your network can *view* without logging in. **Operators** sign in to start and stop things. **Admins** add, edit and remove everything else. Sensitive details are hidden from anonymous viewers.
-- **Secure by default.** HTTPS with an automatic certificate, credentials encrypted at rest, hashed passwords, lockout, audit log, sandboxed service. See [docs/security-assessment.md](docs/security-assessment.md).
+- **Secure by default.** HTTPS with an automatic certificate, credentials encrypted at rest, hashed passwords, lockout, optional two-factor sign-in (authenticator app, never forced), audit log, sandboxed service. See [docs/security-assessment.md](docs/security-assessment.md).
 - **Easy to move.** Everything is configured in the web UI. Back up to a passphrase-protected file and restore it on a new machine.
 
 ## Install

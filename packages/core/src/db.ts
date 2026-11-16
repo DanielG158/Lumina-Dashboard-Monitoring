@@ -17,6 +17,8 @@ export interface UserRow {
   passwordHash: string;
   createdAt: number;
   lastLogin: number | null;
+  /** optional second sign-in step (authenticator app) is switched on for this account */
+  twoFactor: boolean;
 }
 
 export interface MaintenanceRow {
@@ -215,6 +217,12 @@ export function openDb(path: string) {
     );
   `);
 
+  const userCols = (db.prepare("PRAGMA table_info(users)").all() as { name: string }[]).map((c) => c.name);
+  if (!userCols.includes("totp_secret")) db.exec("ALTER TABLE users ADD COLUMN totp_secret TEXT");
+  if (!userCols.includes("totp_pending")) db.exec("ALTER TABLE users ADD COLUMN totp_pending TEXT");
+  if (!userCols.includes("totp_step")) db.exec("ALTER TABLE users ADD COLUMN totp_step INTEGER NOT NULL DEFAULT 0");
+  if (!userCols.includes("recovery")) db.exec("ALTER TABLE users ADD COLUMN recovery TEXT");
+
   const tokenCols = (db.prepare("PRAGMA table_info(api_tokens)").all() as { name: string }[]).map((c) => c.name);
   if (!tokenCols.includes("detail")) db.exec("ALTER TABLE api_tokens ADD COLUMN detail INTEGER NOT NULL DEFAULT 0");
   if (!tokenCols.includes("expires_at")) db.exec("ALTER TABLE api_tokens ADD COLUMN expires_at INTEGER");
@@ -247,9 +255,9 @@ export function openDb(path: string) {
     position: r.position,
   });
 
-  type RawUser = { id: number; username: string; password_hash: string; role: UserRow["role"]; created_at: number; last_login: number | null };
+  type RawUser = { id: number; username: string; password_hash: string; role: UserRow["role"]; created_at: number; last_login: number | null; totp_secret: string | null; totp_pending: string | null; totp_step: number; recovery: string | null };
   const toUser = (r: RawUser): UserRow => ({
-    id: r.id, username: r.username, role: r.role, passwordHash: r.password_hash, createdAt: r.created_at, lastLogin: r.last_login,
+    id: r.id, username: r.username, role: r.role, passwordHash: r.password_hash, createdAt: r.created_at, lastLogin: r.last_login, twoFactor: r.totp_secret !== null,
   });
 
   type RawEvent = { id: number; ts: number; instance_id: string; key: string; severity: EventRow["severity"]; title: string; detail: string | null; state: EventRow["state"]; resolved_ts: number | null; notified: number };
@@ -354,6 +362,23 @@ export function openDb(path: string) {
       setRole: (id: number, role: UserRow["role"]) => db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, id),
       touchLogin: (id: number) => db.prepare("UPDATE users SET last_login = ? WHERE id = ?").run(now(), id),
       delete: (id: number) => db.prepare("DELETE FROM users WHERE id = ?").run(id),
+
+      // Optional two-factor sign-in. The secret is stored encrypted; recovery codes only as hashes.
+      totp: (id: number): { secret: string; lastStep: number; recovery: string[] } | null => {
+        const r = db.prepare("SELECT totp_secret, totp_step, recovery FROM users WHERE id = ?").get(id) as Pick<RawUser, "totp_secret" | "totp_step" | "recovery"> | undefined;
+        return r?.totp_secret ? { secret: decrypt(key, r.totp_secret), lastStep: r.totp_step, recovery: r.recovery ? (JSON.parse(r.recovery) as string[]) : [] } : null;
+      },
+      setPendingTotp: (id: number, secret: string) => db.prepare("UPDATE users SET totp_pending = ? WHERE id = ?").run(encrypt(key, secret), id),
+      pendingTotp: (id: number): string | null => {
+        const r = db.prepare("SELECT totp_pending FROM users WHERE id = ?").get(id) as { totp_pending: string | null } | undefined;
+        return r?.totp_pending ? decrypt(key, r.totp_pending) : null;
+      },
+      enableTotp: (id: number, secret: string, recoveryHashes: string[], step: number) =>
+        db.prepare("UPDATE users SET totp_secret = ?, totp_pending = NULL, totp_step = ?, recovery = ? WHERE id = ?").run(encrypt(key, secret), step, JSON.stringify(recoveryHashes), id),
+      disableTotp: (id: number) => db.prepare("UPDATE users SET totp_secret = NULL, totp_pending = NULL, totp_step = 0, recovery = NULL WHERE id = ?").run(id),
+      /** Remember the last accepted time step; false when this step (or an older one) was already used. */
+      useTotpStep: (id: number, step: number) => db.prepare("UPDATE users SET totp_step = ? WHERE id = ? AND totp_step < ?").run(step, id, step).changes === 1,
+      setRecovery: (id: number, hashes: string[]) => db.prepare("UPDATE users SET recovery = ? WHERE id = ?").run(JSON.stringify(hashes), id),
     },
 
     speed: {

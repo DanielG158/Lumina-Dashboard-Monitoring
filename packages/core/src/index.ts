@@ -436,7 +436,9 @@ const seesAll = (req: FastifyRequest) => Boolean(req.user) || fullDetail.has(req
 app.get("/api/alerts", async (req) => {
   const active: ActiveAlert[] = engine.active();
   const recent = store.events.recent(100);
-  return seesAll(req) ? { active, recent, muted: settings().muted } : { active: active.map(forViewer), recent: recent.map(forViewer), muted: [] };
+  return seesAll(req)
+    ? { active, recent, muted: settings().muted }
+    : { active: active.map((a) => forViewer({ ...a, acknowledged: a.acknowledged && { ...a.acknowledged, by: "" } })), recent: recent.map(forViewer), muted: [] };
 });
 
 // The full alert history, with filters and paging. Anonymous visitors may read it, exactly like the recent list.
@@ -470,6 +472,21 @@ app.post("/api/alerts/mute", { preHandler: operator }, async (req) => {
   store.settings.set("muted", [...muted]);
   audit(req, "alert-muted", instanceId ? `${instanceId}: ${key}` : key);
   io.emit("alerts:changed");
+  return { ok: true };
+});
+
+// "I know, I'm on it": the daily reminder emails skip this alert for a while (or until it is fixed). The alert stays visible and unchanged.
+app.post("/api/alerts/ack", { preHandler: operator }, async (req, reply) => {
+  const { key, instanceId, hours } = z.object({ key: z.string().min(1).max(200), instanceId: z.string().min(1).max(64), hours: z.number().min(1).max(24 * 30).nullable() }).parse(req.body);
+  if (!engine.acknowledge(instanceId, key, req.user!.username, hours === null ? null : Math.round(hours * 3600))) return reply.code(404).send({ error: "That alert is not active any more" });
+  audit(req, "alert-acknowledged", `${instanceId}: ${key}`, hours === null ? "until fixed" : `${hours} h`);
+  return { ok: true };
+});
+
+app.delete("/api/alerts/ack", { preHandler: operator }, async (req, reply) => {
+  const { key, instanceId } = z.object({ key: z.string().min(1), instanceId: z.string().min(1).max(64) }).parse(req.query);
+  if (!engine.unacknowledge(instanceId, key)) return reply.code(404).send({ error: "That alert is not active any more" });
+  audit(req, "alert-unacknowledged", `${instanceId}: ${key}`);
   return { ok: true };
 });
 

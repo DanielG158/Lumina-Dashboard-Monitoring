@@ -14,9 +14,17 @@ export interface ActiveAlert {
   /** true while a maintenance window is muting this alert's instance */
   suppressed: boolean;
   maintenance: string | null;
+  /** "I know, I'm on it": set by a person; daily reminder emails skip the alert until `until` (null: until it is fixed) */
+  acknowledged: Ack | null;
 }
 
-interface Tracked extends Omit<ActiveAlert, "suppressed" | "maintenance"> {
+export interface Ack {
+  by: string;
+  at: number;
+  until: number | null;
+}
+
+interface Tracked extends Omit<ActiveAlert, "suppressed" | "maintenance" | "acknowledged"> {
   absent: number;
   /** false while the alert was raised during maintenance and nobody has been told yet */
   notified: boolean;
@@ -59,13 +67,43 @@ export class AlertEngine {
 
   active(): ActiveAlert[] {
     const muted = new Set(this.settings().muted);
+    const acks = this.liveAcks();
     return [...this.firing.values()]
       .filter((a) => !isMuted(muted, a.instanceId, a.key))
       .map(({ absent: _a, notified: _n, ...a }) => {
         const m = this.maintenance(a.instanceId);
-        return { ...a, suppressed: m !== null, maintenance: m?.name ?? null };
+        return { ...a, suppressed: m !== null, maintenance: m?.name ?? null, acknowledged: acks[a.id] ?? null };
       })
       .sort((a, b) => b.since - a.since);
+  }
+
+  /** Acknowledgements that still count: not expired, and the alert is still there. Stale ones are dropped from storage. */
+  private liveAcks(): Record<string, Ack> {
+    const all = this.store.settings.get<Record<string, Ack>>("acks", {});
+    const nowS = Math.floor(Date.now() / 1000);
+    const open = new Set([...this.firing.values()].map((a) => String(a.id)));
+    const keep = Object.fromEntries(Object.entries(all).filter(([id, a]) => open.has(id) && (a.until === null || a.until > nowS)));
+    if (Object.keys(keep).length !== Object.keys(all).length) this.store.settings.set("acks", keep);
+    return keep;
+  }
+
+  /** Acknowledge one firing alert. `seconds` null means until it is fixed. Returns false when there is no such alert. */
+  acknowledge(instanceId: string, key: string, by: string, seconds: number | null): boolean {
+    const a = this.firing.get(`${instanceId}\u0000${key}`);
+    if (!a) return false;
+    const now = Math.floor(Date.now() / 1000);
+    this.store.settings.set("acks", { ...this.liveAcks(), [String(a.id)]: { by, at: now, until: seconds === null ? null : now + seconds } });
+    this.io.emit("alerts:changed");
+    return true;
+  }
+
+  unacknowledge(instanceId: string, key: string): boolean {
+    const a = this.firing.get(`${instanceId}\u0000${key}`);
+    if (!a) return false;
+    const { [String(a.id)]: _gone, ...rest } = this.liveAcks();
+    this.store.settings.set("acks", rest);
+    this.io.emit("alerts:changed");
+    return true;
   }
 
   forInstance(instanceId: string): ActiveAlert[] {

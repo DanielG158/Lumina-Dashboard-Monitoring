@@ -6,7 +6,7 @@ let ok = true;
 const check = (n, c, x = "") => { if (!c) ok = false; console.log(`${c ? "PASS" : "FAIL"}  ${n}${x ? "  -> " + x : ""}`); };
 
 let id = 0; const resolved = []; const sent = [];
-const store = { events: { firing: () => [], insert: () => ++id, resolve: (i) => resolved.push(i), setNotified() {} } };
+const store = { events: { firing: () => [], insert: () => ++id, resolve: (i) => resolved.push(i), setNotified() {} }, settings: { get: (_k, d) => d, set() {} } };
 const engine = new AlertEngine(store, { emit() {} }, async (n) => { sent.push(n); }, () => ({ confirmPolls: 1, muted: [] }));
 const c = (key, title) => ({ key, severity: "warning", title });
 const stale = [c("backup-stale:101", "a has no recent backup"), c("backup-stale:102", "b has no recent backup"), c("backup-missing:103", "c has no backup"), c("drive:x", "Drive x is hot")];

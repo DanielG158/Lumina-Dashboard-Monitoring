@@ -137,9 +137,9 @@ export function reminderDue(now: Date, at: number, lastDay: string | null, tz?: 
   return w.minutes >= at && lastDay !== w.day;
 }
 
-/** Problems that have already been announced and are still there a day later. */
+/** Problems that have already been announced and are still there a day later (not ones someone has acknowledged). */
 export function persisting(active: ActiveAlert[], minSeverity: Severity, nowMs: number): ActiveAlert[] {
-  return active.filter((a) => !a.suppressed && RANK[a.severity] >= RANK[minSeverity] && a.since * 1000 <= nowMs - REMIND_AFTER_MS);
+  return active.filter((a) => !a.suppressed && !a.acknowledged && RANK[a.severity] >= RANK[minSeverity] && a.since * 1000 <= nowMs - REMIND_AFTER_MS);
 }
 
 /** Once a day (at the time set on each email channel) mails whatever is still not fixed. */

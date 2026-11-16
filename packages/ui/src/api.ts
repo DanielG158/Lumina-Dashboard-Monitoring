@@ -52,6 +52,8 @@ export interface ActiveAlert {
   /** a maintenance window is muting this alert's instance */
   suppressed: boolean;
   maintenance: string | null;
+  /** someone said "I know, I'm on it": daily reminder emails skip it until `until` (null: until fixed) */
+  acknowledged: { by: string; at: number; until: number | null } | null;
 }
 
 export interface SpeedResult { id: number; instanceId: string; ts: number; downMbps: number | null; upMbps: number | null; latencyMs: number | null; error: string | null }
@@ -89,6 +91,7 @@ export interface UserInfo {
   role: "operator" | "admin";
   createdAt: number;
   lastLogin: number | null;
+  twoFactor: boolean;
 }
 
 export interface Channel {
@@ -248,7 +251,7 @@ export interface EnergyResult {
 }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public needsCode = false) {
     super(message);
   }
 }
@@ -261,14 +264,16 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
+    let needsCode = false;
     try {
       const j = await res.json();
       if (j?.error) message = String(j.error);
+      needsCode = j?.needsCode === true;
     } catch { /* not JSON */ }
     if (res.status === 401 && !path.startsWith("/auth/login") && !path.startsWith("/auth/setup")) {
       window.dispatchEvent(new CustomEvent("lumina:unauthorized"));
     }
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, message, needsCode);
   }
   return res.json() as Promise<T>;
 }
@@ -281,7 +286,12 @@ export const api = {
   skipSetup: (setupCode?: string) => req("/auth/skip-setup", json("POST", { setupCode })),
   setup: (username: string, password: string, setupCode?: string) => req("/auth/setup", json("POST", { username, password, setupCode })),
   probeFingerprint: (url: string) => req<{ fingerprint: string }>("/probe-fingerprint", json("POST", { url })),
-  login: (username: string, password: string) => req("/auth/login", json("POST", { username, password })),
+  login: (username: string, password: string, code?: string) => req("/auth/login", json("POST", { username, password, code })),
+  twoFactor: () => req<{ enabled: boolean; recoveryLeft: number }>("/auth/2fa"),
+  twoFactorSetup: (password: string) => req<{ secret: string; uri: string }>("/auth/2fa/setup", json("POST", { password })),
+  twoFactorEnable: (code: string) => req<{ recoveryCodes: string[] }>("/auth/2fa/enable", json("POST", { code })),
+  twoFactorDisable: (password: string, code: string) => req("/auth/2fa/disable", json("POST", { password, code })),
+  twoFactorRecovery: (password: string, code: string) => req<{ recoveryCodes: string[] }>("/auth/2fa/recovery", json("POST", { password, code })),
   logout: () => req("/auth/logout", { method: "POST" }),
   changePassword: (current: string, next: string) => req("/auth/password", json("POST", { current, next })),
 
@@ -313,6 +323,8 @@ export const api = {
     return req<{ events: EventRow[]; hasMore: boolean; total: number; instances: string[] }>(`/alerts/history?${p}`);
   },
   mute: (key: string, instanceId?: string) => req("/alerts/mute", json("POST", { key, instanceId })),
+  acknowledge: (key: string, instanceId: string, hours: number | null) => req("/alerts/ack", json("POST", { key, instanceId, hours })),
+  unacknowledge: (key: string, instanceId: string) => req(`/alerts/ack?key=${enc(key)}&instanceId=${enc(instanceId)}`, { method: "DELETE" }),
   unmute: (key: string, instanceId?: string) => req(`/alerts/mute?key=${enc(key)}${instanceId ? `&instanceId=${enc(instanceId)}` : ""}`, { method: "DELETE" }),
 
   channelTypes: () => req<ChannelType[]>("/channel-types"),
@@ -327,7 +339,7 @@ export const api = {
   createToken: (name: string, detail = false, days: number | null = null) => req<{ id: number; name: string; token: string }>("/tokens", json("POST", { name, detail, days })),
   deleteToken: (id: number) => req(`/tokens/${id}`, { method: "DELETE" }),
   addUser: (username: string, password: string, role: string) => req("/users", json("POST", { username, password, role })),
-  updateUser: (id: number, patch: { role?: string; password?: string }) => req(`/users/${id}`, json("PUT", patch)),
+  updateUser: (id: number, patch: { role?: string; password?: string; resetTwoFactor?: true }) => req(`/users/${id}`, json("PUT", patch)),
   deleteUser: (id: number) => req(`/users/${id}`, { method: "DELETE" }),
 
   settings: () => req<AppSettings>("/settings"),

@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { Store, UserRow } from "./db.js";
 import { hashPassword, randomToken, sha256, verifyPassword } from "./crypto.js";
+import { matchStep, newRecoveryCode, newSecret, normalizeRecovery, otpauthUri } from "./totp.js";
 
 export type Role = UserRow["role"];
 export interface AuthUser {
@@ -149,6 +150,24 @@ export function registerAuthRoutes(
     return publicUser(user);
   }
 
+  const hashRecovery = (code: string) => sha256(`recovery:${normalizeRecovery(code)}`);
+  const freshRecovery = () => {
+    const codes = Array.from({ length: 10 }, newRecoveryCode);
+    return { codes, hashes: codes.map(hashRecovery) };
+  };
+  /** An authenticator code (each time step works once) or an unused recovery code (works once, then it is gone). */
+  async function checkSecondStep(userId: number, typed: string): Promise<boolean> {
+    const t = store.users.totp(userId);
+    if (!t) return false;
+    const step = matchStep(t.secret, typed);
+    if (step !== null) return store.users.useTotpStep(userId, step);
+    if (normalizeRecovery(typed).length === 12) {
+      const h = hashRecovery(typed);
+      if (t.recovery.includes(h)) { store.users.setRecovery(userId, t.recovery.filter((x) => x !== h)); return true; }
+    }
+    return false;
+  }
+
   app.get("/api/auth/status", async (req) => {
     const session = auth.authenticate(req.headers.cookie);
     return { setupRequired: store.users.count() === 0, setupCodeRequired: setupCode.required(), openAccess: openAccess(), publicView: publicView(), siteName: store.settings.get<string>("siteName", ""), user: session ? publicUser(session.user) : null };
@@ -169,7 +188,7 @@ export function registerAuthRoutes(
   });
 
   app.post("/api/auth/login", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (req, reply) => {
-    const body = z.object({ username: z.string().max(64), password: z.string().max(200) }).parse(req.body);
+    const body = z.object({ username: z.string().max(64), password: z.string().max(200), code: z.string().max(40).optional() }).parse(req.body);
     const ip = clientIp(req);
     const name = body.username.toLowerCase();
     const pair = `${ip}\u0000${name}`;
@@ -187,9 +206,21 @@ export function registerAuthRoutes(
       audit(req, "login-failed", body.username, null, body.username);
       return reply.code(401).send({ error: "Wrong username or password" });
     }
+    // Optional second step: only for accounts that switched it on. A correct password alone then gets no session.
+    if (user.twoFactor) {
+      const typed = (body.code ?? "").trim();
+      if (!typed) return reply.code(401).send({ error: "Enter the 6-digit code from your authenticator app", needsCode: true });
+      if (!(await checkSecondStep(user.id, typed))) {
+        ipThrottle.fail(ip);
+        pairThrottle.fail(pair);
+        nameThrottle.fail(name);
+        audit(req, "login-failed", body.username, "wrong second-step code", body.username);
+        return reply.code(401).send({ error: "That code is wrong or was already used", needsCode: true });
+      }
+    }
     ipThrottle.reset(ip);
     pairThrottle.reset(pair);
-    audit(req, "login", user.username, null, user.username);
+    audit(req, "login", user.username, user.twoFactor ? "with a second step" : null, user.username);
     return startSession(req, reply, user);
   });
 
@@ -213,10 +244,76 @@ export function registerAuthRoutes(
     return { ok: true };
   });
 
+  // ---- optional two-factor sign-in (never required; each person decides for their own account) ----
+  const own = (req: FastifyRequest, reply: FastifyReply) => {
+    const u = req.user ? store.users.byId(req.user.id) : null;
+    if (!u) void reply.code(req.user ? 400 : 401).send({ error: req.user ? "Open access has no account — create an admin account first" : "Sign in to do this" });
+    return u ?? null;
+  };
+  const sensitive = { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } };
+
+  app.get("/api/auth/2fa", async (req, reply) => {
+    const u = own(req, reply);
+    if (!u) return;
+    return { enabled: u.twoFactor, recoveryLeft: store.users.totp(u.id)?.recovery.length ?? 0 };
+  });
+
+  // Step 1: needs the password; hands out a new secret that does nothing until a first code proves the app has it.
+  app.post("/api/auth/2fa/setup", sensitive, async (req, reply) => {
+    const u = own(req, reply);
+    if (!u) return;
+    const body = z.object({ password: z.string().max(200) }).parse(req.body);
+    if (u.twoFactor) return reply.code(409).send({ error: "Two-factor sign-in is already on. Turn it off first to set it up again." });
+    if (!(await verifyPassword(body.password, u.passwordHash))) return reply.code(400).send({ error: "Password is wrong" });
+    const secret = newSecret();
+    store.users.setPendingTotp(u.id, secret);
+    return { secret, uri: otpauthUri(secret, u.username, store.settings.get<string>("siteName", "") || "Lumina") };
+  });
+
+  // Step 2: the first code from the app switches it on and shows the recovery codes once.
+  app.post("/api/auth/2fa/enable", sensitive, async (req, reply) => {
+    const u = own(req, reply);
+    if (!u) return;
+    const body = z.object({ code: z.string().max(20) }).parse(req.body);
+    const secret = store.users.pendingTotp(u.id);
+    if (!secret) return reply.code(400).send({ error: "Start the setup first" });
+    const step = matchStep(secret, body.code);
+    if (step === null) return reply.code(400).send({ error: "That code is not right. Check the clock on your phone and try the next code." });
+    const rec = freshRecovery();
+    store.users.enableTotp(u.id, secret, rec.hashes, step);
+    audit(req, "2fa-enabled", u.username);
+    return { ok: true, recoveryCodes: rec.codes };
+  });
+
+  const verifyOwn = async (u: UserRow, password: string, code: string) => (await verifyPassword(password, u.passwordHash)) && (await checkSecondStep(u.id, code));
+
+  app.post("/api/auth/2fa/disable", sensitive, async (req, reply) => {
+    const u = own(req, reply);
+    if (!u) return;
+    const body = z.object({ password: z.string().max(200), code: z.string().max(40) }).parse(req.body);
+    if (!u.twoFactor) return { ok: true };
+    if (!(await verifyOwn(u, body.password, body.code))) return reply.code(400).send({ error: "Password or code is wrong" });
+    store.users.disableTotp(u.id);
+    audit(req, "2fa-disabled", u.username);
+    return { ok: true };
+  });
+
+  app.post("/api/auth/2fa/recovery", sensitive, async (req, reply) => {
+    const u = own(req, reply);
+    if (!u) return;
+    const body = z.object({ password: z.string().max(200), code: z.string().max(40) }).parse(req.body);
+    if (!u.twoFactor) return reply.code(400).send({ error: "Two-factor sign-in is off" });
+    if (!(await verifyOwn(u, body.password, body.code))) return reply.code(400).send({ error: "Password or code is wrong" });
+    const rec = freshRecovery();
+    store.users.setRecovery(u.id, rec.hashes);
+    audit(req, "2fa-recovery-renewed", u.username);
+    return { ok: true, recoveryCodes: rec.codes };
+  });
+
   const admin = requireRole("admin");
 
   app.get("/api/users", { preHandler: admin }, async () =>
-    store.users.list().map((u) => ({ id: u.id, username: u.username, role: u.role, createdAt: u.createdAt, lastLogin: u.lastLogin })),
+    store.users.list().map((u) => ({ id: u.id, username: u.username, role: u.role, createdAt: u.createdAt, lastLogin: u.lastLogin, twoFactor: u.twoFactor })),
   );
 
   app.post("/api/users", { preHandler: admin }, async (req, reply) => {
@@ -230,9 +327,15 @@ export function registerAuthRoutes(
 
   app.put("/api/users/:id", { preHandler: admin }, async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
-    const body = z.object({ role: RoleSchema.optional(), password: Password.optional() }).parse(req.body);
+    const body = z.object({ role: RoleSchema.optional(), password: Password.optional(), resetTwoFactor: z.literal(true).optional() }).parse(req.body);
     const user = store.users.byId(id);
     if (!user) return reply.code(404).send({ error: "User not found" });
+    // For someone who lost their phone and their recovery codes: turns it off for that account and signs it out everywhere.
+    if (body.resetTwoFactor) {
+      store.users.disableTotp(id);
+      store.sessions.deleteForUser(id);
+      audit(req, "2fa-reset", user.username);
+    }
     if (body.role && body.role !== user.role) {
       if (user.role === "admin" && store.users.countAdmins() <= 1) return reply.code(400).send({ error: "There must be at least one admin" });
       store.users.setRole(id, body.role);

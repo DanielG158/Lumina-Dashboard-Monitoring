@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import qrcode from "qrcode-generator";
 import { api, type AppSettings, type Channel, type ChannelType, type ServerInfo, type UserInfo } from "../api";
 import { readJsonFile, waitForServer } from "../components/AuthDialogs";
 import { useLumina } from "../context";
@@ -305,9 +306,10 @@ function Users() {
                     <option value="operator">Operator</option><option value="admin">Admin</option>
                   </select>
                 </td>
-                <td className="sub">{u.lastLogin ? new Date(u.lastLogin * 1000).toLocaleString() : "never"}</td>
+                <td className="sub">{u.lastLogin ? new Date(u.lastLogin * 1000).toLocaleString() : "never"}{u.twoFactor && <span className="tag" style={{ marginLeft: 6 }} title="Signs in with an authenticator code as well">2-step</span>}</td>
                 <td><div className="actions">
                   <button className="btn sm" onClick={async () => { const p = prompt(`New password for ${u.username} (min 8 characters):`); if (p) { try { await api.updateUser(u.id, { password: p }); notify("Password reset"); } catch (x) { notify(err(x), true); } } }}>Reset password</button>
+                  {u.twoFactor && <button className="btn sm" title="For someone who lost their phone and recovery codes: turns the second step off for them and signs them out everywhere" onClick={async () => { if (confirm(`Turn off two-factor sign-in for ${u.username}? They are signed out everywhere and can set it up again.`)) { try { await api.updateUser(u.id, { resetTwoFactor: true }); await load(); notify("Two-factor sign-in turned off"); } catch (x) { notify(err(x), true); } } }}>Reset 2-step</button>}
                   <button className="btn sm danger" disabled={u.id === auth?.user?.id} onClick={async () => { if (confirm(`Delete ${u.username}?`)) { try { await api.deleteUser(u.id); await load(); } catch (x) { notify(err(x), true); } } }}>Delete</button>
                 </div></td>
               </tr>
@@ -378,6 +380,73 @@ function Backup() {
   );
 }
 
+/** Optional: nobody has to use it. Turn it on with an authenticator app; turn it off again at any time. */
+function TwoFactor() {
+  const { notify } = useLumina();
+  const [state, setState] = useState<{ enabled: boolean; recoveryLeft: number } | null>(null);
+  const [setup, setSetup] = useState<{ secret: string; uri: string } | null>(null);
+  const [codes, setCodes] = useState<string[] | null>(null);
+  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = () => api.twoFactor().then(setState).catch((x) => notify(err(x), true));
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  async function run(fn: () => Promise<void>) {
+    setBusy(true);
+    try { await fn(); } catch (x) { notify(err(x), true); } finally { setBusy(false); }
+  }
+  if (!state) return null;
+  const qr = setup ? (() => { const q = qrcode(0, "M"); q.addData(setup.uri); q.make(); return q.createDataURL(5, 8); })() : null;
+
+  if (codes) {
+    return (
+      <div className="stack">
+        <h3 style={{ margin: 0 }}>Recovery codes</h3>
+        <div className="hint">Write these down or save them somewhere safe. Each works once, instead of an app code, if you lose your phone. <b>They are not shown again.</b></div>
+        <pre style={{ margin: 0, padding: 10, columns: 2, background: "var(--bg-2, rgba(128,128,128,.12))", borderRadius: 6 }}>{codes.join("\n")}</pre>
+        <div className="row">
+          <button className="btn" onClick={() => void navigator.clipboard?.writeText(codes.join("\n")).then(() => notify("Copied"))}>Copy</button>
+          <button className="btn primary" onClick={() => { setCodes(null); void load(); }}>I have saved them</button>
+        </div>
+      </div>
+    );
+  }
+  if (setup) {
+    return (
+      <form className="stack" onSubmit={(e) => { e.preventDefault(); void run(async () => { const r = await api.twoFactorEnable(code.trim()); setSetup(null); setCode(""); setPassword(""); setCodes(r.recoveryCodes); }); }}>
+        <h3 style={{ margin: 0 }}>Set up two-factor sign-in</h3>
+        <div className="hint">1. In an authenticator app (Google Authenticator, Microsoft Authenticator, Aegis, 1Password, …) add an account by scanning this picture, or type the key.</div>
+        {qr && <img src={qr} alt="QR code for your authenticator app" width={180} height={180} style={{ background: "#fff", borderRadius: 6 }} />}
+        <code style={{ wordBreak: "break-all" }}>{setup.secret.match(/.{1,4}/g)?.join(" ")}</code>
+        <Field label="2. Type the 6-digit code the app shows now"><input className="field" inputMode="numeric" autoComplete="one-time-code" autoFocus value={code} onChange={(e) => setCode(e.target.value)} /></Field>
+        <div className="row"><button className="btn primary" disabled={busy || code.trim().length < 6}>Turn on</button><button type="button" className="btn" onClick={() => { setSetup(null); setCode(""); }}>Cancel</button></div>
+      </form>
+    );
+  }
+  if (!state.enabled) {
+    return (
+      <form className="stack" onSubmit={(e) => { e.preventDefault(); void run(async () => setSetup(await api.twoFactorSetup(password))); }}>
+        <h3 style={{ margin: 0 }}>Two-factor sign-in <span className="tag">off</span></h3>
+        <div className="hint">Optional. When on, signing in also needs a 6-digit code from an app on your phone, so a stolen password is not enough. Other accounts are not affected.</div>
+        <Field label="Your password"><input className="field" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
+        <div><button className="btn" disabled={busy || !password}>Set up…</button></div>
+      </form>
+    );
+  }
+  return (
+    <form className="stack" onSubmit={(e) => e.preventDefault()}>
+      <h3 style={{ margin: 0 }}>Two-factor sign-in <span className="tag">on</span></h3>
+      <div className="hint">{state.recoveryLeft} recovery code{state.recoveryLeft === 1 ? "" : "s"} left. To change anything here, enter your password and a current app code (or a recovery code).</div>
+      <Field label="Your password"><input className="field" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
+      <Field label="Code"><input className="field" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value)} /></Field>
+      <div className="row">
+        <button className="btn" disabled={busy || !password || !code.trim()} onClick={() => void run(async () => { const r = await api.twoFactorRecovery(password, code.trim()); setCodes(r.recoveryCodes); setPassword(""); setCode(""); })}>New recovery codes</button>
+        <button className="btn danger" disabled={busy || !password || !code.trim()} onClick={() => void run(async () => { await api.twoFactorDisable(password, code.trim()); setPassword(""); setCode(""); notify("Two-factor sign-in turned off"); await load(); })}>Turn off</button>
+      </div>
+    </form>
+  );
+}
+
 function Account() {
   const { auth, notify, reloadAuth } = useLumina();
   if (!auth?.user) return <div className="hint">Open access is on, so there is no account to manage. Create an admin account under <b>Users</b> — that turns open access off and asks for a sign-in from then on.</div>;
@@ -396,6 +465,7 @@ function Account() {
         <Field label="New password (at least 8 characters)"><input className="field" type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} /></Field>
         <div><button className="btn primary" disabled={!cur || next.length < 8}>Change password</button></div>
       </form>
+      <TwoFactor />
       <div><button className="btn" onClick={async () => { await api.logout().catch(() => undefined); await reloadAuth(); }}>Sign out</button></div>
     </div>
   );

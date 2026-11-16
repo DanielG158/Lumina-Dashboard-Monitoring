@@ -35,10 +35,17 @@ export function AlertsPage() {
                 {active.map((a) => (
                   <tr key={a.id}>
                     <td><span className={`dot ${a.severity}`} title={a.severity} /></td>
-                    <td style={{ whiteSpace: "normal" }}><b>{a.title}</b>{a.suppressed && <span className="tag" style={{ marginLeft: 6 }}>in maintenance</span>}{a.detail && <div className="sub">{a.detail}</div>}</td>
+                    <td style={{ whiteSpace: "normal" }}><b>{a.title}</b>{a.suppressed && <span className="tag" style={{ marginLeft: 6 }}>in maintenance</span>}{a.acknowledged && <span className="tag" style={{ marginLeft: 6 }} title="Daily reminder emails skip this problem">{`acknowledged${a.acknowledged.by ? ` by ${a.acknowledged.by}` : ""}${a.acknowledged.until ? `, until ${when(a.acknowledged.until)}` : ", until fixed"}`}</span>}{a.detail && <div className="sub">{a.detail}</div>}</td>
                     <td>{a.instanceId}</td>
                     <td className="sub">{ago(a.since * 1000)}</td>
-                    {L.can.operate && <td><div className="actions"><button className="btn sm" disabled={busy === a.key} title={`Stop raising and notifying about this on ${a.instanceId} until you unmute it`} onClick={() => act(a.key, () => api.mute(a.key, a.instanceId))}>Mute</button></div></td>}
+                    {L.can.operate && <td><div className="actions">
+                      {a.acknowledged
+                        ? <button className="btn sm" disabled={busy === a.key} title="Send the daily reminders for this problem again" onClick={() => act(a.key, () => api.unacknowledge(a.key, a.instanceId))}>Undo acknowledge</button>
+                        : <select className="field" style={{ height: 28, padding: "0 6px" }} value="" disabled={busy === a.key} aria-label={`Acknowledge ${a.title}`} title="Say you know about it: the daily reminder emails skip it. It stays listed here, and you are still told when it is fixed."
+                            onChange={(e) => { const v = e.target.value; if (v) void act(a.key, () => api.acknowledge(a.key, a.instanceId, v === "fixed" ? null : Number(v))); }}>
+                            <option value="">Acknowledge…</option><option value="4">for 4 hours</option><option value="24">for 24 hours</option><option value="168">for 7 days</option><option value="fixed">until it is fixed</option>
+                          </select>}
+                      <button className="btn sm" disabled={busy === a.key} title={`Stop raising and notifying about this on ${a.instanceId} until you unmute it`} onClick={() => act(a.key, () => api.mute(a.key, a.instanceId))}>Mute</button></div></td>}
                   </tr>
                 ))}
               </tbody>

@@ -1,10 +1,13 @@
 import { useState, type FormEvent } from "react";
-import { api } from "../api";
+import { api, ApiError } from "../api";
 import { LuminaMark } from "./Icons";
 
 export function LoginDialog({ onClose, onDone, notice }: { onClose: () => void; onDone: () => void; notice?: string }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  // Set once the password was right for an account that has two-factor sign-in switched on.
+  const [needsCode, setNeedsCode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -13,10 +16,10 @@ export function LoginDialog({ onClose, onDone, notice }: { onClose: () => void; 
     setBusy(true);
     setError(null);
     try {
-      await api.login(username.trim(), password);
+      await api.login(username.trim(), password, needsCode ? code.trim() : undefined);
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (err instanceof ApiError && err.needsCode) { setNeedsCode(true); if (code) setError(err.message); setCode(""); } else setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -30,12 +33,18 @@ export function LoginDialog({ onClose, onDone, notice }: { onClose: () => void; 
           <h2>Sign in</h2>
           <div className="sub">{notice ?? "Anyone can look at the dashboard. Signing in lets you control things."}</div>
         </div>
-        <input className="field" autoFocus placeholder="Username" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} />
-        <input className="field" type="password" placeholder="Password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <input className="field" autoFocus={!needsCode} placeholder="Username" autoComplete="username" value={username} readOnly={needsCode} onChange={(e) => setUsername(e.target.value)} />
+        <input className="field" type="password" placeholder="Password" autoComplete="current-password" value={password} readOnly={needsCode} onChange={(e) => setPassword(e.target.value)} />
+        {needsCode && (
+          <label className="stack" style={{ gap: 4 }}>
+            <span className="sub">Code from your authenticator app (or a recovery code)</span>
+            <input className="field" autoFocus inputMode="numeric" autoComplete="one-time-code" placeholder="123456" value={code} onChange={(e) => setCode(e.target.value)} aria-label="Authenticator code" />
+          </label>
+        )}
         {error && <div className="error">{error}</div>}
         <div className="row" style={{ justifyContent: "flex-end" }}>
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={busy || !username || !password}>{busy ? "Signing in…" : "Sign in"}</button>
+          <button className="btn primary" disabled={busy || !username || !password || (needsCode && !code.trim())}>{busy ? "Signing in…" : "Sign in"}</button>
         </div>
       </form>
     </div>
