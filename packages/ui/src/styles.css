@@ -364,3 +364,7 @@ small.warn { color: var(--warn); }
 /* the devices of another Lumina, drawn inside its card */
 .remote-devices { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .remote-devices > .panel { margin: 0; border-left: 3px solid var(--accent); }
+
+/* ZFS pools on the Proxmox card */
+.zfs-pool { padding: 8px 0; border-top: 1px solid var(--line, rgba(127, 127, 127, 0.2)); }
+.zfs-pool:first-child { border-top: 0; }

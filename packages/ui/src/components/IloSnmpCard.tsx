@@ -8,7 +8,7 @@ interface D {
   product: string | null; serial: string | null; ilo: { model: string | null; name: string | null; description: string | null }; overall: C; components: { name: string; cond: C }[]; powerW: number | null;
   temps: { name: string; celsius: number; limitC: number | null; cond: C }[]; fans: { name: string; cond: C; rpm: number | null }[]; supplies: { name: string; cond: C; volts: number | null; usedW: number | null; maxW: number | null }[];
   cpus: { name: string; speedMHz: number | null; status: string }[]; dimms: { slot: string; sizeGB: number; mhz: number | null; ok: boolean }[];
-  controllers: { model: string | null; slot: number | null; cond: C }[]; logical: { id: string; level: string; status: string; sizeGB: number | null; ok: boolean }[];
+  controllers: { model: string | null; slot: number | null; cond: C }[]; logical: { id: string; level: string; status: string; sizeGB: number | null; ok: boolean; percent?: number | null }[];
   drives: { id: string; location: string; model: string | null; sizeGB: number | null; status: string; statusOk: boolean; media: string | null; tempC: number | null; limitC: number | null; hours: number | null }[];
   warnings: string[];
 }
@@ -57,7 +57,7 @@ export function IloSnmpCard(props: CardProps) {
           </Section>
           {(d.controllers.length > 0 || d.drives.length > 0) && (
             <Section id={sid("storage")} title="Storage" count={d.drives.length} meta={d.controllers.map((c) => `${c.model ?? "controller"} (${WORD[c.cond]})`).join(" · ")}>
-              {d.logical.length > 0 && <div className="sub" style={{ margin: "4px 0" }}>{d.logical.map((l) => `Logical drive ${l.id}: ${l.level} ${l.sizeGB ?? "?"} GB, ${l.status}`).join(" · ")}</div>}
+              {d.logical.length > 0 && <div className="sub" style={{ margin: "4px 0" }}>{d.logical.map((l) => `Logical drive ${l.id}: ${l.level} ${l.sizeGB ?? "?"} GB, ${l.status}${l.percent !== null && l.percent !== undefined ? ` ${l.percent}%` : ""}`).join(" · ")}</div>}
               <table><thead><tr><th></th><th>Bay</th><th>Model</th><th>Type</th><th className="num">Size</th><th className="num">Temp</th><th>Status</th></tr></thead><tbody>
                 {d.drives.map((x) => <tr key={x.id}><td><span className={`dot ${x.statusOk ? "connected" : "disconnected"}`} /></td><td>{x.location}</td><td>{x.model ?? "—"}</td><td className="sub">{x.media ?? "—"}</td><td className="num">{x.sizeGB ? `${x.sizeGB} GB` : "—"}</td><td className="num" style={{ color: x.tempC !== null && x.tempC >= (x.limitC ?? 55) ? "var(--warn)" : undefined }}>{x.tempC !== null ? `${x.tempC}°C` : "—"}</td><td>{x.status}</td></tr>)}
               </tbody></table>

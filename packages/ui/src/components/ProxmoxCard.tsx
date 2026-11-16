@@ -28,11 +28,17 @@ interface Task { node: string; user: string; type: string; id: string | null; st
 interface LogEntry { time: number; node: string; user: string; tag: string; msg: string }
 interface Backup { id: string; enabled: boolean; schedule: string; storage: string | null; mode: string | null; target: string; comment: string | null }
 interface Ha { id: string; type: string; status: string; node: string | null }
+interface ZfsDevice { name: string; kind: "pool" | "group" | "disk"; depth: number; state: string | null; read: number; write: number; cksum: number; note: string | null }
+interface ZfsPool {
+  node: string; name: string; health: string; size: number; alloc: number; free: number; frag: number | null; scan: string | null; status: string | null; action: string | null;
+  errors: string | null; activity: { kind: "resilver" | "scrub"; percent: number | null; eta: string | null } | null; devices: ZfsDevice[]; problems: string[];
+}
 interface ProxmoxData {
   nodes: PveNode[]; guests: PveGuest[]; storage: Storage[]; pools: { id: string; comment: string }[]; disks: Disk[]; network: Iface[];
   tasks: Task[]; log: LogEntry[]; backups: Backup[]; ha: Ha[];
   cluster: { name: string; quorate: boolean; nodes: number } | null; warnings: string[];
   backupPolicy?: { maxAgeDays: number; listOk: boolean };
+  zfs?: ZfsPool[] | null;
 }
 
 const EMPTY: ProxmoxData = {
@@ -206,6 +212,59 @@ function GuestDialog({ instanceId, kind, guest, storages, onClose, onDone }: {
   );
 }
 
+const zfsDot = (state: string | null) => (state === null || state === "ONLINE" || state === "AVAIL" ? "up" : state === "DEGRADED" ? "degraded" : "down");
+
+/** The same picture as `zpool status`: each pool, how full it is, what it is doing, and its disks with their error counts. */
+function ZfsSection({ id, pools }: { id: string; pools: ZfsPool[] }) {
+  if (!pools.length) return null;
+  const bad = pools.filter((p) => p.health !== "ONLINE" || p.problems.length > 0 || (p.errors && !/no known data errors/i.test(p.errors))).length;
+  const busy = pools.filter((p) => p.activity).length;
+  return (
+    <Section id={id} title="ZFS pools" count={pools.length} meta={[bad ? `${bad} need attention` : "all healthy", busy ? `${busy} busy` : ""].filter(Boolean).join(" · ")}>
+      {pools.map((p) => {
+        const used = p.size > 0 ? p.alloc / p.size : 0;
+        const dataErrors = p.errors && !/no known data errors/i.test(p.errors);
+        return (
+          <div key={`${p.node}/${p.name}`} className="zfs-pool">
+            <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
+              <span className={`dot ${zfsDot(p.health)}`} />
+              <b>{p.name}</b>
+              <span className="tag">{p.health}</span>
+              <span className="sub">{p.node} · {gb(p.alloc)} / {gb(p.size)} GB ({pct(used)}){p.frag !== null ? ` · ${p.frag}% fragmented` : ""}</span>
+            </div>
+            <div className="bar" style={{ margin: "6px 0" }}><i className={barClass(used)} style={{ width: pct(used) }} /></div>
+            {p.activity && (
+              <div style={{ color: p.activity.kind === "resilver" ? "var(--warn)" : undefined }}>
+                {p.activity.kind === "resilver" ? "Resilvering (rebuilding onto a disk)" : "Scrubbing (checking every block)"}
+                {p.activity.percent !== null ? ` · ${p.activity.percent}% done` : ""}{p.activity.eta ? ` · ${p.activity.eta} to go` : ""}
+                {p.activity.percent !== null && <div className="bar" style={{ margin: "4px 0" }}><i style={{ width: `${Math.min(100, p.activity.percent)}%` }} /></div>}
+              </div>
+            )}
+            {!p.activity && p.scan && <div className="sub">Last check: {p.scan}</div>}
+            {p.status && <div className="error" style={{ margin: "6px 0" }}>{p.status}{p.action ? ` What to do: ${p.action}` : ""}</div>}
+            {dataErrors && <div className="error" style={{ margin: "6px 0" }}>{p.errors}</div>}
+            {p.devices.length > 0 && (
+              <table>
+                <thead><tr><th></th><th>Device</th><th>State</th><th className="num">Read</th><th className="num">Write</th><th className="num">Checksum</th></tr></thead>
+                <tbody>
+                  {p.devices.filter((v) => v.kind !== "pool").map((v, i) => (
+                    <tr key={i}>
+                      <td><span className={`dot ${zfsDot(v.state)}`} /></td>
+                      <td style={{ paddingLeft: 8 + Math.max(0, v.depth - 1) * 16 }} className={v.kind === "disk" ? "sub" : undefined}>{v.name}{v.note ? <small className="warn"> {v.note}</small> : null}</td>
+                      <td style={{ color: v.state && !/^(ONLINE|AVAIL)$/.test(v.state) ? "var(--bad)" : undefined }}>{v.state ?? "—"}</td>
+                      {[v.read, v.write, v.cksum].map((n, k) => <td key={k} className="num" style={{ color: n > 0 ? "var(--warn)" : undefined }}>{n}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        );
+      })}
+    </Section>
+  );
+}
+
 export function ProxmoxCard(props: CardProps) {
   const { instance } = props;
   const { notify, can } = useLumina();
@@ -338,6 +397,8 @@ export function ProxmoxCard(props: CardProps) {
           </table>
         </Section>
       )}
+
+      <ZfsSection id={sid("zfs")} pools={data.zfs ?? []} />
 
       {data.disks.length > 0 && (
         <Section id={sid("disks")} title="Disks (SMART)" count={data.disks.length} meta={`${data.disks.filter((d) => healthDot(d.health) === "down").length} failing`}>

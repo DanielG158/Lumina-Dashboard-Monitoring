@@ -41,7 +41,7 @@ export function startFakeHpe(port, server, { community = "public" } = {}) {
   table("cpus", `${E}.1.2.2.1.1`, [[1, I], [2, I], [3, S], [4, I], [6, I]], [1], server.cpus?.map((c, i) => [i + 1, i, c[0], c[1], c[2]]));
   table("dimms", `${E}.2.2.4.5.1`, [[1, I], [2, I], [3, I], [11, I], [12, S], [13, I]], [1, 2], server.dimms?.map((d, i) => [1, i + 1, d[0], d[1], d[2], d[3]]));
   table("ctrl", `${E}.3.2.2.1.1`, [[1, I], [2, S], [5, I], [6, I]], [1], server.controllers?.map((c, i) => [i + 1, c[0], c[1], c[2]]));
-  table("logical", `${E}.3.2.3.1.1`, [[1, I], [2, I], [3, I], [4, I], [9, I], [11, I]], [1, 2], server.logical?.map((l, i) => [1, i + 1, l[0], l[1], l[2], l[3]]));
+  table("logical", `${E}.3.2.3.1.1`, [[1, I], [2, I], [3, I], [4, I], [9, I], [11, I], [12, I]], [1, 2], server.logical?.map((l, i) => [1, i + 1, l[0], l[1], l[2], l[3], l[4] ?? 100]));
   table("phys", `${E}.3.2.5.1.1`, [[1, I], [2, I], [3, S], [5, I], [6, I], [37, I], [45, I], [64, S], [69, I], [70, I], [71, I], [74, I]], [1, 2], server.drives?.map((d, i) => [1, i + 1, d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8], d[9]]));
   return { agent, close: () => { try { agent.close(() => undefined); } catch { /* ignore */ } } };
 }
@@ -55,6 +55,6 @@ export const GEN9_WITH_TROUBLE = {
   cpus: [["Intel(R) Xeon(R) CPU E5-2660 v4", 2000, 2], ["Intel(R) Xeon(R) CPU E5-2660 v4", 2000, 2]],
   dimms: [[16777216, 2, "PROC 1 DIMM 1", 2133], [16777216, 3, "PROC 1 DIMM 2", 2133], [0, 1, "PROC 1 DIMM 3", 0]],
   controllers: [["Smart Array P440ar Controller", 0, 3]],
-  logical: [[6, 5, 1171456, 3]],
+  logical: [[6, 5, 1171456, 3, 37]],
   drives: [["AL14SEB120N", 1, 2, 2, 1144641, "Port 1I Box 1 Bay 1", 2, 34, 60, 9000], ["AL14SEB120N", 4, 3, 4, 1144641, "Port 1I Box 1 Bay 4", 2, 33, 60, 9100], ["H101812SFSUN1.2T", 6, 2, 2, 1144641, "Port 2I Box 3 Bay 6", 2, 56, 60, 2000]],
 };

@@ -75,6 +75,64 @@ export function applyWebStatus(logical: LogicalDrive[], web: Obj | null | undefi
   });
 }
 
+/** "Port 1I Box 3 Bay 4" (web page) and "1I:3:4" (Redfish) are the same place. */
+export const bay = (s: string | null | undefined): string => {
+  const m = /Port\s+(\S+)\s+Box\s+(\S+)\s+Bay\s+(\S+)/i.exec(String(s ?? ""));
+  return m ? `${m[1]}:${m[2]}:${m[3]}` : String(s ?? "").trim();
+};
+const DRIVE_STATE: Record<string, string> = { PHYS_OK: "OK", PHYS_REBUILDING: "Rebuilding", PHYS_FAILED: "Failed", PHYS_PREDICTIVE_FAILURE: "Predicted to fail", PHYS_ERASING: "Erasing", PHYS_ERASE_DONE: "Erased", PHYS_ERASE_QUEUED: "Waiting to erase", PHYS_SSD_WEAROUT: "Worn out", PHYS_NOT_AUTHENTICATED: "Not a supported drive" };
+const pretty = (code: string, prefix: RegExp) => { const t = code.replace(prefix, "").toLowerCase().replace(/_/g, " "); return t ? t[0].toUpperCase() + t.slice(1) : "Unknown"; };
+const driveState = (code: string) => DRIVE_STATE[code] ?? pretty(code, /^PHYS_/);
+const driveRole = (code: string): string => (/UNCONFIG/i.test(code) ? "Unassigned" : /SPARE/i.test(code) ? "Spare" : /CONFIG/i.test(code) ? "In an array" : pretty(code, /^PHY_/));
+
+/**
+ * Adds what only the iLO's own web pages know: each drive's state (rebuilding, failed, predicted to fail), whether it belongs to
+ * an array, is a spare or is unassigned, which RAID volume it is in, and drives Redfish did not list at all.
+ */
+export function mergeWebDrives(st: { logical: LogicalDrive[]; drives: Obj[] }, logPage: Obj | null | undefined, phyPage: Obj | null | undefined): { logical: (LogicalDrive & { members?: string[]; rebuildingOn?: string[] })[]; drives: Obj[] } {
+  const logical: (LogicalDrive & { members?: string[]; rebuildingOn?: string[] })[] = applyWebStatus(st.logical, logPage);
+  const phys: Obj[] = ((phyPage?.phy_drive_arrays ?? []) as Obj[]).flatMap((a) => (a.physical_drives ?? []) as Obj[]);
+  if (!phys.length) return { logical, drives: st.drives };
+  const theirs: Obj[] = ((logPage?.log_drive_arrays ?? []) as Obj[]).flatMap((a) => (a.logical_drives ?? []) as Obj[]);
+  // which volume each drive index belongs to; a drive listed inside a volume is described there too
+  const volumeOf = new Map<number, string>();
+  theirs.forEach((w, i) => {
+    const name = logical.find((l) => l.name === String(w.name))?.name ?? (theirs.length === logical.length ? logical[i]?.name : undefined) ?? String(w.name ?? "");
+    for (const m of (w.physical_drives ?? []) as unknown[]) {
+      const idx = typeof m === "number" ? m : typeof (m as Obj)?.phys_idx === "number" ? (m as Obj).phys_idx : null;
+      if (idx !== null) volumeOf.set(idx, name);
+    }
+  });
+  const drives = st.drives.map((d) => ({ ...d }));
+  for (const w of phys) {
+    const where = bay(w.location ?? w.name);
+    let d = drives.find((x) => bay(x.location) === where) ?? (w.serial_no ? drives.find((x) => x.serial && x.serial === w.serial_no) : undefined);
+    if (!d) {
+      const gb = Number(/([\d.]+)\s*GB/i.exec(String(w.capacity ?? ""))?.[1]);
+      d = { location: where, model: w.model ?? null, serial: w.serial_no ?? null, media: w.drive_mediatype ?? null, protocol: null, capacityGB: Number.isFinite(gb) ? gb : null, health: /OK/.test(String(w.status ?? "")) ? "OK" : "Warning", tempC: null, rpm: null, firmware: w.fw_version ?? null, powerOnHours: null, ssdWearPct: null, reasons: [] };
+      drives.push(d);
+    }
+    d.state = driveState(String(w.phys_status ?? ""));
+    d.role = driveRole(String(w.drive_type ?? ""));
+    d.volume = typeof w.phys_idx === "number" ? volumeOf.get(w.phys_idx) ?? null : null;
+  }
+  for (const l of logical) {
+    const mine = drives.filter((d) => d.volume === l.name);
+    if (mine.length) l.members = mine.map((d) => String(d.location));
+    const re = mine.filter((d) => d.state === "Rebuilding").map((d) => String(d.location));
+    if (re.length) { l.rebuildingOn = re; if (!l.rebuilding) { l.rebuilding = true; l.state = "Degraded (rebuilding)"; } }
+  }
+  return { logical, drives };
+}
+
+export interface DriveMemory { known: Set<string> | null; insertedAt: Map<string, number> }
+/** Remembers which drives are there. One that shows up later is new for a day; the first look never calls anything new. */
+export function noteNewDrives(mem: DriveMemory, ids: string[], now: number): void {
+  if (mem.known) for (const id of ids) if (!mem.known.has(id)) mem.insertedAt.set(id, now);
+  mem.known = new Set(ids);
+  for (const [id, at] of mem.insertedAt) if (now - at > 86_400_000 || !mem.known.has(id)) mem.insertedAt.delete(id);
+}
+
 /** The iLO's own breakdown of what makes the server "Warning" or "Critical" (Oem AggregateHealthStatus). */
 export function healthComponents(system: Obj): { name: string; health: string }[] {
   const agg = hp(system).AggregateHealthStatus as Obj | undefined;
@@ -197,27 +255,31 @@ export default defineModule<Config>({
       } catch (err) { note(`redfish login: ${msg(err)}`); }
       return false;
     }
-    async function webJson(path: string): Promise<Obj | null> {
+    // An iLO without these pages (iLO 5, or a login the web interface refuses) is not asked again for an hour.
+    let webOffUntil = 0;
+    async function webJson(path: string, has: string): Promise<Obj | null> {
+      if (Date.now() < webOffUntil) return null;
       try {
         for (let attempt = 0; attempt < 2; attempt++) {
-          if (!webKey && !(await webLogin())) return null;
+          if (!webKey && !(await webLogin())) break;
           const res = await rawCall("GET", path, undefined, { cookie: `sessionKey=${webKey}` });
           let parsed: Obj | null = null;
           try { parsed = JSON.parse(res.body) as Obj; } catch { /* not JSON */ }
-          note(`${path}: HTTP ${res.status}${parsed ? "" : ", not JSON"}${parsed && !parsed.log_drive_arrays ? ", no volumes in it" : ""}`);
-          if (res.status === 200 && parsed?.log_drive_arrays) return parsed;
-          webKey = null;
-          webSession = null;
+          note(`${path}: HTTP ${res.status}${parsed ? "" : ", not JSON"}${parsed && !parsed[has] ? ", nothing useful in it" : ""}`);
+          if (res.status === 200 && parsed?.[has]) return parsed;
+          await endWebSession(); // never leave a session behind on the iLO
         }
       } catch (err) { note(`${path}: ${msg(err)}`); }
+      webOffUntil = Date.now() + 3600_000;
       return null;
     }
-    function web(path: string): Promise<Obj | null> {
-      const run = chain.then(() => webJson(path));
+    function web(path: string, has = "log_drive_arrays"): Promise<Obj | null> {
+      const run = chain.then(() => webJson(path, has));
       chain = run.catch(() => undefined);
       return run;
     }
-    async function webLogout() {
+    /** Closes the web session; called from inside the request queue. */
+    async function endWebSession() {
       const key = webKey;
       const kind = webKind;
       const path = webSession;
@@ -226,9 +288,16 @@ export default defineModule<Config>({
       webKind = null;
       if (!key) return;
       try {
-        await chain.then(() => (kind === "redfish" && path ? rawCall("DELETE", path, undefined, { "x-auth-token": key }) : rawCall("POST", "/json/login_session", { method: "logout" }, { cookie: `sessionKey=${key}` })));
+        await (kind === "redfish" && path ? rawCall("DELETE", path, undefined, { "x-auth-token": key }) : rawCall("POST", "/json/login_session", { method: "logout", session_key: key }, { cookie: `sessionKey=${key}` }));
       } catch { /* it expires by itself */ }
     }
+    async function webLogout() {
+      const run = chain.then(() => endWebSession());
+      chain = run.catch(() => undefined);
+      await run;
+    }
+
+    const seen: DriveMemory = { known: null, insertedAt: new Map() };
 
     let lastPowerState: string | null = null;
     const RESET = "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset/";
@@ -335,9 +404,14 @@ export default defineModule<Config>({
               });
             }
           }
-          const unhealthy = logical.some((l) => l.health !== null && l.health !== "OK" && l.health !== "Ok" && !l.rebuilding);
-          const volumes = unhealthy ? applyWebStatus(logical, await web("/json/health_drives")) : logical;
-          return { health: root.Status?.Health ?? null, controllers, logical: volumes, drives };
+          // The web pages add the state and role of each drive and what is rebuilding; without them the Redfish view is shown as it is.
+          const logPage = await web("/json/health_drives");
+          const phyPage = logPage ? await web("/json/health_phy_drives", "phy_drive_arrays") : null;
+          const merged = mergeWebDrives({ logical, drives }, logPage, phyPage);
+          // A drive that appears while Lumina is watching is new: it is pointed out for a day.
+          noteNewDrives(seen, merged.drives.map((d) => String(d.serial ?? d.location)), Date.now());
+          for (const d of merged.drives) d.insertedAt = seen.insertedAt.get(String(d.serial ?? d.location)) ?? null;
+          return { health: root.Status?.Health ?? null, controllers, logical: merged.logical, drives: merged.drives, webDetail: Boolean(phyPage) };
         },
       },
       {
@@ -565,14 +639,35 @@ export default defineModule<Config>({
         for (const f of d.fans ?? []) if (bad(f.health)) out.push({ key: `fan:${f.name}`, severity: "critical", title: `${f.name} has a problem`, detail: f.health });
         for (const p of d.supplies ?? []) if (bad(p.health)) out.push({ key: `psu:${p.name}`, severity: "critical", title: `Power supply ${p.name} has a problem`, detail: p.health });
         for (const c of d.storage?.controllers ?? []) if (bad(c.health)) out.push({ key: `controller:${c.location}`, severity: "critical", title: `Storage controller ${c.model ?? ""} has a problem`, detail: c.health });
-        for (const [n, l] of ((d.storage?.logical ?? []) as LogicalDrive[]).entries()) {
-          if (l.rebuilding) out.push({ key: `logical:${n}`, severity: "warning", title: `RAID volume "${l.name}" (${l.raid ?? "RAID"}) is rebuilding`, detail: l.percent !== null ? `${l.percent}% done` : "The array is running without full redundancy until it finishes" });
-          else if (bad(l.health)) out.push({ key: `logical:${n}`, severity: l.health === "Warning" ? "warning" : "critical", title: `RAID volume "${l.name}" (${l.raid ?? "RAID"}) is ${l.state.toLowerCase()}`, detail: l.reasons.join(", ") || undefined });
+        const volumes = (d.storage?.logical ?? []) as (LogicalDrive & { members?: string[]; rebuildingOn?: string[] })[];
+        const allDrives = (d.storage?.drives ?? []) as Obj[];
+        const describe = (x: Obj) => [x.model, x.capacityGB !== null && x.capacityGB !== undefined ? `${x.capacityGB} GB` : null, x.serial ? `serial ${x.serial}` : null].filter(Boolean).join(", ");
+        for (const [n, l] of volumes.entries()) {
+          const failedIn = allDrives.filter((x) => x.volume === l.name && (x.state === "Failed" || bad(x.health))).map((x) => `bay ${x.location}`);
+          if (l.rebuilding) {
+            out.push({
+              key: `logical:${n}`, severity: "warning", title: `RAID volume "${l.name}" (${l.raid ?? "RAID"}) is rebuilding`,
+              detail: [l.rebuildingOn?.length ? `Rebuilding onto the drive in bay ${l.rebuildingOn.join(", ")}` : null, l.percent !== null ? `${l.percent}% done` : null, "It has no full redundancy until it finishes; do not pull another drive"].filter(Boolean).join(". "),
+            });
+          } else if (bad(l.health)) {
+            out.push({
+              key: `logical:${n}`, severity: l.health === "Warning" ? "warning" : "critical", title: `RAID volume "${l.name}" (${l.raid ?? "RAID"}) is ${l.state.toLowerCase()}`,
+              detail: [failedIn.length ? `Failed drive in ${failedIn.join(", ")}` : null, l.capacityGiB !== null ? `${l.capacityGiB} GiB` : null, ...l.reasons].filter(Boolean).join(". ") || undefined,
+            });
+          }
         }
-        for (const x of d.storage?.drives ?? []) {
+        for (const x of allDrives) {
           const id = x.serial ?? x.location;
-          if (bad(x.health)) out.push({ key: `drive:${id}`, severity: "critical", title: `Drive ${x.location ?? ""} (${x.model ?? "unknown"}) is ${x.health}`, detail: (x.reasons ?? []).join(", ") || undefined });
-          else if (x.tempC !== null && x.tempC >= 55) out.push({ key: `drive-temp:${id}`, severity: "warning", title: `Drive ${x.location ?? ""} is hot`, detail: `${x.tempC}°C` });
+          const vol = x.volume ? volumes.find((l) => l.name === x.volume) : undefined;
+          const inVolume = vol ? `Part of "${vol.name}" (${vol.raid ?? "RAID"})` : x.role === "Spare" ? "A spare drive" : x.role === "Unassigned" ? "Not part of any array" : null;
+          if (x.state === "Failed" || (bad(x.health) && x.state !== "Rebuilding" && x.state !== "Predicted to fail")) {
+            out.push({ key: `drive:${id}`, severity: "critical", title: `Drive in bay ${x.location ?? "?"} has failed`, detail: [describe(x), inVolume, vol ? "that volume has lost redundancy: replace this drive" : "replace this drive", ...(x.reasons ?? [])].filter(Boolean).join(". ") });
+          } else if (x.state === "Predicted to fail") {
+            out.push({ key: `drive:${id}`, severity: "warning", title: `Drive in bay ${x.location ?? "?"} is predicted to fail`, detail: [describe(x), inVolume, "It still works, but the drive itself reports it is wearing out: plan a replacement"].filter(Boolean).join(". ") });
+          } else if (x.state && !["OK", "Rebuilding"].includes(x.state)) {
+            out.push({ key: `drive:${id}`, severity: "warning", title: `Drive in bay ${x.location ?? "?"}: ${String(x.state).toLowerCase()}`, detail: [describe(x), inVolume].filter(Boolean).join(". ") });
+          } else if (x.tempC !== null && x.tempC !== undefined && x.tempC >= 55) out.push({ key: `drive-temp:${id}`, severity: "warning", title: `Drive ${x.location ?? ""} is hot`, detail: `${x.tempC}°C` });
+          if (x.insertedAt) out.push({ key: `drive-new:${id}`, severity: "info", title: `New drive in bay ${x.location ?? "?"}`, detail: [describe(x), x.state === "Rebuilding" ? "The array is rebuilding onto it" : inVolume].filter(Boolean).join(". ") });
         }
         for (const m of d.memory?.dimms ?? []) {
           if (m.status && !/^(GoodInUse|GoodPartiallyInUse|Absent|NotPresent|PresentSpare)$/.test(m.status)) out.push({ key: `dimm:${m.slot}`, severity: "critical", title: `Memory module ${m.slot} problem`, detail: m.status });
@@ -593,7 +688,7 @@ export default defineModule<Config>({
           out.push({ key: `read-failed:${section}`, severity: "info", title: `Could not read ${section} from the iLO`, detail: (i > 0 ? w.slice(i + 1) : w).trim().slice(0, 300) });
         }
         const unknown: string[] = [];
-        if (!d.storage) unknown.push("drive:", "drive-temp:", "controller:", "logical:");
+        if (!d.storage) unknown.push("drive:", "drive-temp:", "drive-new:", "controller:", "logical:");
         if (!d.memory?.dimms) unknown.push("dimm:");
         if (!d.logs?.iml) unknown.push("iml:");
         if (!d.ilo) unknown.push("ilo-selftest:");
@@ -627,6 +722,7 @@ export default defineModule<Config>({
           dangerous: false,
           async run() {
             await webLogout();
+            webOffUntil = 0;
             trace.length = 0;
             const page = await web("/json/health_drives");
             const volumes = ((page?.log_drive_arrays ?? []) as Obj[]).flatMap((a) => (a.logical_drives ?? []) as Obj[]).map((v) => ({ name: v.name, status: v.status, logStatus: v.log_status }));

@@ -28,7 +28,7 @@ const TABLE = {
   cpus: [`${E}.1.2.2.1`, [2, 3, 4, 6]],        // slot, name, speed MHz, status
   dimms: [`${E}.2.2.4.5`, [3, 12, 13, 11]],    // size KB, location, MHz, ECC status
   controllers: [`${E}.3.2.2.1`, [2, 5, 6]],    // model, slot, condition
-  logical: [`${E}.3.2.3.1`, [3, 4, 9, 11]],    // fault tolerance, status, size MB, condition
+  logical: [`${E}.3.2.3.1`, [3, 4, 9, 11, 12]], // fault tolerance, status, size MB, condition, percent rebuilt
   physical: [`${E}.3.2.5.1`, [3, 5, 6, 37, 45, 64, 69, 70, 71, 74]], // model, bay, status, condition, size MB, location, media, temp, temp limit, power-on hours
 } as const;
 
@@ -48,7 +48,7 @@ export interface Psu { name: string; cond: Cond; volts: number | null; usedW: nu
 export interface Cpu { name: string; speedMHz: number | null; status: Cond | "disabled" }
 export interface Dimm { slot: string; sizeGB: number; mhz: number | null; ok: boolean }
 export interface Ctrl { model: string | null; slot: number | null; cond: Cond }
-export interface Logical { id: string; level: string; status: string; sizeGB: number | null; cond: Cond; ok: boolean }
+export interface Logical { id: string; level: string; status: string; sizeGB: number | null; cond: Cond; ok: boolean; percent: number | null }
 export interface Drive { id: string; location: string; model: string | null; sizeGB: number | null; status: string; statusOk: boolean; cond: Cond; media: string | null; tempC: number | null; limitC: number | null; hours: number | null }
 
 // ---- reading the tables --------------------------------------------------------------------------------------------------
@@ -99,7 +99,10 @@ export function parseLogical(t: Obj): Logical[] {
   return Object.keys(t).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map((k) => {
     const r = t[k] as Obj;
     const s = Number(r[4]);
-    return { id: k, level: FAULT[Number(r[3])] ?? "", status: LOGICAL[s] ?? `status ${s}`, sizeGB: num(r[9]) !== null ? Math.round(((r[9] as number) / 1024) * 10) / 10 : null, cond: cond(r[11]), ok: s === 2 };
+    // percent rebuilt only means something while the volume is recovering (5) or rebuilding (7); 4294967295 is "not available"
+    const p = num(r[12]);
+    const percent = (s === 5 || s === 7) && p !== null && p >= 0 && p <= 100 ? p : null;
+    return { id: k, level: FAULT[Number(r[3])] ?? "", status: LOGICAL[s] ?? `status ${s}`, sizeGB: num(r[9]) !== null ? Math.round(((r[9] as number) / 1024) * 10) / 10 : null, cond: cond(r[11]), ok: s === 2, percent };
   });
 }
 export function parseDrives(t: Obj): Drive[] {
@@ -212,7 +215,7 @@ export default defineModule<Config>({
         for (const c of (d.cpus ?? []) as Cpu[]) if (c.status === "degraded" || c.status === "failed") out.push({ key: `cpu:${c.name}`, severity: sev(c.status), title: `Processor problem: ${c.name}`, detail: c.status });
         for (const m of (d.dimms ?? []) as Dimm[]) if (!m.ok) out.push({ key: `dimm:${m.slot}`, severity: "warning", title: `Memory module ${m.slot} has too many corrected errors`, detail: `${m.sizeGB} GB` });
         for (const c of (d.controllers ?? []) as Ctrl[]) if (bad(c.cond)) out.push({ key: `controller:${c.slot ?? c.model}`, severity: sev(c.cond), title: `Storage controller ${c.model ?? ""} has a problem`, detail: c.cond });
-        for (const l of (d.logical ?? []) as Logical[]) if (!l.ok) out.push({ key: `logical:${l.id}`, severity: l.status === "failed" ? "critical" : "warning", title: `Logical drive ${l.id} (${l.level}) is ${l.status}`, detail: l.sizeGB ? `${l.sizeGB} GB` : undefined });
+        for (const l of (d.logical ?? []) as Logical[]) if (!l.ok) out.push({ key: `logical:${l.id}`, severity: l.status === "failed" ? "critical" : "warning", title: `Logical drive ${l.id} (${l.level}) is ${l.status}${l.percent !== null ? `, ${l.percent}% done` : ""}`, detail: l.sizeGB ? `${l.sizeGB} GB` : undefined });
         for (const x of (d.drives ?? []) as Drive[]) {
           if (!x.statusOk) out.push({ key: `drive:${x.id}`, severity: x.status === "failed" || x.status === "predictive failure" ? "critical" : "warning", title: `Drive ${x.location} (${x.model ?? "unknown"}) is ${x.status}` });
           else if (x.tempC !== null && ((x.limitC && x.tempC >= x.limitC) || x.tempC >= 55)) out.push({ key: `drive-temp:${x.id}`, severity: "warning", title: `Drive ${x.location} is hot`, detail: `${x.tempC}°C` });

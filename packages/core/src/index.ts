@@ -422,13 +422,13 @@ app.delete("/api/tokens/:id", { preHandler: admin }, async (req, reply) => {
 
 // Anonymous viewers (and normal access tokens) see that something is wrong and where, but not raw error text (it names internal
 // addresses) and not keys built from serial numbers. Full-detail tokens and signed-in users see everything.
-const SECRET_DETAIL = /^(unreachable$|read-failed:|remote:)/;
-const SERIAL_KEY = /^(drive|drive-temp|disk-health|disk-wear):/;
+const SECRET_DETAIL = /^(unreachable$|read-failed:|remote:|zfs:|zfs-data:)/;
+const SERIAL_KEY = /^(drive|drive-temp|drive-new|disk-health|disk-wear):/;
 function forViewer<T extends { key: string; detail: string | null }>(a: T): T {
   return {
     ...a,
     key: SERIAL_KEY.test(a.key) ? `${a.key.slice(0, a.key.indexOf(":"))}:${sha256(a.key).slice(0, 12)}` : a.key,
-    detail: SECRET_DETAIL.test(a.key) ? null : a.detail,
+    detail: SECRET_DETAIL.test(a.key) ? null : a.detail && SERIAL_KEY.test(a.key) ? a.detail.replace(/(, |\. )?serial [^,.]+/g, "") : a.detail,
   };
 }
 const seesAll = (req: FastifyRequest) => Boolean(req.user) || fullDetail.has(req);

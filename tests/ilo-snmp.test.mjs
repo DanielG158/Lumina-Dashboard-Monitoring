@@ -36,6 +36,7 @@ check("the overall state is a warning and names the parts that are not ok", al.s
 check("a sensor over its limit is critical; a normal one raises nothing", al.some((a) => a.key === "temp:CPU 2" && a.severity === "critical") && !keys.includes("temp:CPU 1") && !keys.includes("temp:Ambient 1"));
 check("a failed fan is critical; working fans raise nothing", al.some((a) => a.key.startsWith("fan:") && a.severity === "critical" && /Fan 3/.test(a.title)) && keys.filter((k) => k.startsWith("fan:")).length === 1);
 check("a failed drive is critical, a hot drive a warning", al.some((a) => a.key === "drive:1.2" && a.severity === "critical") && al.some((a) => a.key === "drive-temp:1.3" && a.severity === "warning"));
+check("the rebuilding volume says how far it is", al.some((a) => a.key === "logical:1.1" && /37% done/.test(a.title)) && d.logical[0].percent === 37, JSON.stringify(al.find((a) => a.key === "logical:1.1")));
 check("a degraded controller, a rebuilding logical drive and a worn memory module are reported", keys.some((k) => k.startsWith("controller:")) && al.some((a) => a.key === "logical:1.1" && /recovering/.test(a.title)) && keys.includes("dimm:PROC 1 DIMM 2"));
 const m = inst.metrics(d);
 check("history uses the same names as the Redfish iLO module: power, temp:max, temp:inlet", m.power === 231 && m["temp:max"] === 74 && m["temp:inlet"] === 26 && m["fan:rpm"] > 3000 && m["drive-temp:max"] === 56, JSON.stringify(m));

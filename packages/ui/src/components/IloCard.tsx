@@ -13,6 +13,8 @@ interface Port {
 interface Drive {
   location: string | null; model: string | null; serial: string | null; media: string | null; protocol: string | null; capacityGB: number | null;
   health: string | null; tempC: number | null; rpm: number | null; firmware: string | null; powerOnHours: number | null; ssdWearPct: number | null; reasons: string[];
+  /** from the iLO's own pages: OK, Rebuilding, Failed, Predicted to fail ... */
+  state?: string; role?: string; volume?: string | null; insertedAt?: number | null;
 }
 interface Entry { id: string; time: string | null; severity: string; message: string }
 interface IloData {
@@ -31,7 +33,7 @@ interface IloData {
   ilo: { firmware: string | null; license: string | null; licenseType: string | null; health: string | null; selfTests: { name: string; status: string; notes: string | null }[];
     hostName: string | null; ip: string | null; ipOrigin: string | null; mac: string | null; speedMbps: number | null } | null;
   storage: { health: string | null; controllers: { model: string | null; location: string | null; firmware: string | null; health: string | null }[];
-    logical?: { name: string; raid: string | null; type: string | null; capacityGiB: number | null; health: string | null; state: string; rebuilding: boolean; percent: number | null; reasons: string[] }[]; drives: Drive[] } | null;
+    logical?: { name: string; raid: string | null; type: string | null; capacityGiB: number | null; health: string | null; state: string; rebuilding: boolean; percent: number | null; reasons: string[]; members?: string[]; rebuildingOn?: string[] }[]; drives: Drive[]; webDetail?: boolean } | null;
   network: { name: string; firmware: string | null; ports: Port[] }[] | null;
   firmware: { name: string; version: string }[] | null;
   logs: { iml: Entry[] | null; iel: Entry[] | null };
@@ -245,19 +247,25 @@ export function IloCard(props: CardProps) {
                         <td>{l.name}</td>
                         <td><span className="tag">{l.raid ?? "—"}</span></td>
                         <td className="num">{l.capacityGiB !== null ? `${l.capacityGiB.toLocaleString()} GiB` : "—"}</td>
-                        <td>{l.state}{l.rebuilding && l.percent !== null ? ` · ${l.percent}%` : ""}{l.reasons.length ? <small className="warn"> {l.reasons.join(", ")}</small> : null}</td>
+                        <td>
+                          {l.state}{l.rebuilding && l.percent !== null ? ` · ${l.percent}%` : ""}{l.reasons.length ? <small className="warn"> {l.reasons.join(", ")}</small> : null}
+                          {l.rebuildingOn?.length ? <div className="sub">rebuilding onto bay {l.rebuildingOn.join(", ")}</div> : null}
+                          {l.members?.length ? <div className="sub">{l.members.length} drives: {l.members.join(", ")}</div> : null}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               )}
               <table>
-                <thead><tr><th></th><th>Bay</th><th>Model</th><th>Serial</th><th>Type</th><th className="num">Size</th><th className="num">Temp</th><th className="num">Speed</th><th>Firmware</th></tr></thead>
+                <thead><tr><th></th><th>Bay</th>{d.storage.webDetail && <th>State</th>}{d.storage.webDetail && <th>Used as</th>}<th>Model</th><th>Serial</th><th>Type</th><th className="num">Size</th><th className="num">Temp</th><th className="num">Speed</th><th>Firmware</th></tr></thead>
                 <tbody>
                   {d.storage.drives.map((x, i) => (
                     <tr key={`${x.serial}-${i}`}>
-                      <td><span className={`dot ${healthDot(x.health)}`} title={x.reasons.join(", ") || x.health || ""} /></td>
-                      <td>{x.location ?? "—"}</td>
+                      <td><span className={`dot ${x.state === "Failed" ? "down" : x.state === "Rebuilding" || x.state === "Predicted to fail" ? "degraded" : healthDot(x.health)}`} title={x.reasons.join(", ") || x.state || x.health || ""} /></td>
+                      <td>{x.location ?? "—"}{x.insertedAt ? <span className="tag" style={{ marginLeft: 6 }} title={`First seen ${new Date(x.insertedAt).toLocaleString()}`}>new</span> : null}</td>
+                      {d.storage!.webDetail && <td style={{ color: x.state === "Failed" ? "var(--bad)" : x.state && x.state !== "OK" ? "var(--warn)" : undefined }}>{x.state ?? "—"}</td>}
+                      {d.storage!.webDetail && <td className="sub">{x.volume ? x.volume : x.role ?? "—"}</td>}
                       <td>{x.model ?? "—"}</td>
                       <td className="sub">{x.serial ?? "—"}</td>
                       <td><span className="tag">{[x.media, x.protocol].filter(Boolean).join(" ")}</span></td>

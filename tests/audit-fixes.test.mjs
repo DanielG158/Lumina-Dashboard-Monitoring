@@ -26,7 +26,7 @@ const iloPosts = [];
 const ilo = http.createServer((q, s) => {
   let b = ""; q.on("data", (c) => { b += c; });
   q.on("end", () => {
-    if (q.method === "POST") { iloPosts.push(q.url); s.end("{}"); return; }
+    if (q.method === "POST") { if (/ComputerSystem\.Reset/.test(q.url)) iloPosts.push(q.url); s.end("{}"); return; } // only power commands are counted; the web login is a POST too
     const j = { "/redfish/v1/Systems/1/": { PowerState: "On", Model: "Fake", Status: { Health: "OK" } } }[q.url] ?? { Members: [] };
     s.setHeader("content-type", "application/json"); s.end(JSON.stringify(j));
   });

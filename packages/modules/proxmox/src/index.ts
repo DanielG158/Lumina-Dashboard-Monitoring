@@ -160,6 +160,86 @@ function client(cfg: Config) {
   };
 }
 
+// ---- ZFS ---------------------------------------------------------------------------------------------------------
+
+export interface ZfsDevice { name: string; kind: "pool" | "group" | "disk"; depth: number; state: string | null; read: number; write: number; cksum: number; note: string | null }
+export interface ZfsPool {
+  node: string; name: string; health: string; size: number; alloc: number; free: number; frag: number | null;
+  /** the "scan:" line of zpool status, as ZFS wrote it */
+  scan: string | null;
+  /** what ZFS says is wrong and what to do about it, when it says anything */
+  status: string | null; action: string | null;
+  errors: string | null;
+  /** a scrub or resilver that is running now */
+  activity: { kind: "resilver" | "scrub"; percent: number | null; eta: string | null } | null;
+  devices: ZfsDevice[];
+  /** devices that are not ONLINE or have counted errors */
+  problems: string[];
+}
+
+/** "/dev/disk/by-id/ata-WDC_WDS120G2G0A-00JH30_193032801857-part1" -> "ata-WDC_WDS120G2G0A-00JH30_193032801857" */
+export const zfsDeviceName = (n: string) => n.replace(/^\/dev\/(disk\/by-[a-z]+\/)?/, "").replace(/-part\d+$/, "");
+
+/** What the "scan:" line says is going on right now, if anything. */
+export function zfsActivity(scan: string | null | undefined): ZfsPool["activity"] {
+  const m = /\b(resilver|scrub) in progress/i.exec(scan ?? "");
+  if (!m) return null;
+  const pct = /([\d.]+)%\s+done/i.exec(scan!);
+  const eta = /,\s*([^,\n]*?)\s+to go/i.exec(scan!);
+  return { kind: m[1].toLowerCase() as "resilver" | "scrub", percent: pct ? Number(pct[1]) : null, eta: eta && !/no estimated/i.test(eta[1]) ? eta[1].trim() : null };
+}
+
+/** One pool from Proxmox's list entry and (when it could be read) its detail, the same information as `zpool status`. */
+export function parseZfsPool(node: string, entry: Record<string, any>, detail: Record<string, any> | null): ZfsPool {
+  const devices: ZfsDevice[] = [];
+  const problems: string[] = [];
+  const GROUPS = /^(mirror|raidz\d?|draid\d?|spare|replacing|cache|logs?|special|dedup|spares)(-|:|$)/i;
+  const walk = (list: Record<string, any>[] | undefined, depth: number) => {
+    for (const c of list ?? []) {
+      const raw = String(c.name ?? "");
+      const leaf = c.leaf === 1 || (!c.children?.length && depth > 0);
+      const kind: ZfsDevice["kind"] = depth === 0 && raw === entry.name ? "pool" : leaf && !GROUPS.test(raw) ? "disk" : "group";
+      const dev: ZfsDevice = { name: kind === "disk" ? zfsDeviceName(raw) : raw, kind, depth, state: c.state ?? null, read: Number(c.read) || 0, write: Number(c.write) || 0, cksum: Number(c.cksum) || 0, note: c.msg ? String(c.msg) : null };
+      devices.push(dev);
+      if (kind !== "pool") {
+        const errs = [dev.read ? `${dev.read} read` : "", dev.write ? `${dev.write} write` : "", dev.cksum ? `${dev.cksum} checksum` : ""].filter(Boolean).join(", ");
+        // a hot spare that is waiting is AVAIL, a cache device has no state at all: neither is a problem
+        if (dev.state && !/^(ONLINE|AVAIL)$/.test(dev.state)) problems.push(`${dev.name} is ${dev.state}${dev.note ? ` (${dev.note})` : ""}${errs ? `, ${errs} errors` : ""}`);
+        else if (errs) problems.push(`${dev.name} has ${errs} errors`);
+      }
+      walk(c.children, depth + 1);
+    }
+  };
+  walk(detail?.children, 0);
+  const scan = detail?.scan ? String(detail.scan) : null;
+  return {
+    node, name: String(entry.name), health: String(detail?.state ?? entry.health ?? "UNKNOWN"),
+    size: Number(entry.size) || 0, alloc: Number(entry.alloc) || 0, free: Number(entry.free) || 0, frag: typeof entry.frag === "number" ? entry.frag : null,
+    scan, status: detail?.status ? String(detail.status) : null, action: detail?.action ? String(detail.action) : null,
+    errors: detail?.errors ? String(detail.errors) : null,
+    activity: zfsActivity(scan), devices, problems,
+  };
+}
+
+/** Alerts for the ZFS pools of one Proxmox. Percentages go in the title (anonymous viewers see titles), device names in the detail. */
+export function zfsAlerts(pools: ZfsPool[]): AlertCondition[] {
+  const out: AlertCondition[] = [];
+  for (const p of pools) {
+    const id = `${p.node}:${p.name}`;
+    const where = `ZFS pool ${p.name} on ${p.node}`;
+    const detail = [...p.problems, p.status, p.action ? `What to do: ${p.action}` : null].filter(Boolean).join(". ") || undefined;
+    const resilver = p.activity?.kind === "resilver";
+    const progress = p.activity ? `${p.activity.percent !== null ? `, ${p.activity.percent}% done` : ""}${p.activity.eta ? `, ${p.activity.eta} to go` : ""}` : "";
+    if (/^(FAULTED|UNAVAIL|SUSPENDED|REMOVED)$/.test(p.health)) out.push({ key: `zfs:${id}`, severity: "critical", title: `${where} is ${p.health}`, detail });
+    else if (p.health === "DEGRADED") out.push({ key: `zfs:${id}`, severity: resilver ? "warning" : "critical", title: resilver ? `${where} is degraded and resilvering${progress}` : `${where} is DEGRADED`, detail: [resilver ? "It has less redundancy until the resilver finishes" : "It is running without full redundancy: replace the failed disk", detail].filter(Boolean).join(". ") });
+    else if (resilver) out.push({ key: `zfs:${id}`, severity: "warning", title: `${where} is resilvering${progress}`, detail });
+    else if (p.health !== "ONLINE" && p.health !== "UNKNOWN") out.push({ key: `zfs:${id}`, severity: "warning", title: `${where} is ${p.health}`, detail });
+    else if (p.problems.length) out.push({ key: `zfs:${id}`, severity: "warning", title: `${where} has disks with errors`, detail });
+    if (p.errors && !/no known data errors/i.test(p.errors)) out.push({ key: `zfs-data:${id}`, severity: "critical", title: `${where} has data errors`, detail: `${p.errors}. Run "zpool status -v ${p.name}" on the host to see which files are affected` });
+  }
+  return out;
+}
+
 const GuestTarget = z.object({
   node: z.string(),
   type: z.enum(["qemu", "lxc"]),
@@ -211,6 +291,8 @@ export default defineModule<Config>({
       return value;
     }
 
+    const lastZfs = new Map<string, ZfsPool[]>();
+
     // Guests seen running this session. A guest that leaves this set only through Lumina's own stop/reboot is not "unexpected".
     const seenRunning = new Set<string>();
     const guestKey = (g: { node: string; vmid: number }) => `${g.node}/${g.vmid}`;
@@ -250,12 +332,24 @@ export default defineModule<Config>({
           nodes
             .filter((n) => n.status === "online")
             .map(async (n) => {
-              const [status, network, disks] = await Promise.all([
+              const [status, network, disks, zfs] = await Promise.all([
                 safe(`${n.node} status`, pve.get<PveNodeStatus>(`/nodes/${n.node}/status`), {} as PveNodeStatus),
                 safe(`${n.node} network`, cached(`net:${n.node}`, 60_000, () => pve.get<PveIface[]>(`/nodes/${n.node}/network`)), []),
                 safe(`${n.node} disks`, cached(`disks:${n.node}`, 300_000, () => pve.get<PveDisk[]>(`/nodes/${n.node}/disks/list`)), []),
+                // A host without ZFS, or a token that may not read it, simply has no pools to show; the last good answer is kept
+                // when one request fails, so a busy host does not make the pools flicker away.
+                cached(`zfs:${n.node}`, 60_000, async () => {
+                  const list = await pve.get<Record<string, unknown>[]>(`/nodes/${n.node}/disks/zfs`);
+                  const pools: ZfsPool[] = [];
+                  for (const e of (list ?? []).slice(0, 24)) {
+                    const detail = await pve.get<Record<string, unknown>>(`/nodes/${n.node}/disks/zfs/${encodeURIComponent(String(e.name))}`).catch(() => null);
+                    pools.push(parseZfsPool(n.node, e, detail));
+                  }
+                  lastZfs.set(n.node, pools);
+                  return pools;
+                }).catch(() => lastZfs.get(n.node) ?? null),
               ]);
-              return { node: n.node, status, network, disks };
+              return { node: n.node, status, network, disks, zfs };
             }),
         );
 
@@ -408,6 +502,10 @@ export default defineModule<Config>({
             target: j.all ? "all guests" : j.pool ? `pool ${j.pool}` : j.vmid ? `guests ${j.vmid}` : "",
             comment: j.comment ? String(j.comment) : null,
           })),
+          // null when no node could be asked (then nothing is known, and nothing is resolved by mistake)
+          zfs: perNode.some((p) => p.zfs !== null) ? perNode.flatMap((p) => p.zfs ?? []) : null,
+          /** true when some node could not be asked about its pools just now: their alerts are then left as they are */
+          zfsPartial: perNode.some((p) => p.zfs === null),
           ha: ha.map((h) => ({
             id: String(h.id ?? ""),
             type: String(h.type ?? ""),
@@ -466,12 +564,16 @@ export default defineModule<Config>({
             }
           }
         }
+        out.push(...zfsAlerts((d.zfs ?? []) as ZfsPool[]));
         const dayAgo = Date.now() / 1000 - 86400;
         for (const t of d.tasks ?? []) {
           if (t.type !== "vzdump" || !t.end || t.end < dayAgo || t.status === "OK" || t.status === "running") continue;
           out.push({ key: `backup:${t.node}:${t.start}`, severity: t.status.startsWith("WARNINGS") ? "warning" : "critical", title: "Backup did not finish cleanly", detail: `${t.id ?? "job"} on ${t.node}: ${t.status}` });
         }
-        return d.backupPolicy?.listOk === false && (d.backupPolicy?.maxAgeDays ?? 0) > 0 ? { conditions: out, unknown: ["backup-stale:", "backup-missing:"] } : out;
+        const unknown: string[] = [];
+        if (d.backupPolicy?.listOk === false && (d.backupPolicy?.maxAgeDays ?? 0) > 0) unknown.push("backup-stale:", "backup-missing:");
+        if (d.zfsPartial) unknown.push("zfs:", "zfs-data:");
+        return unknown.length ? { conditions: out, unknown } : out;
       },
       metrics(d: any) {
         const m: Record<string, number> = {};

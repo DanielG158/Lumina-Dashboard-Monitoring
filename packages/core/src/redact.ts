@@ -14,6 +14,7 @@ function redactData(moduleId: string, d: Obj): Obj {
         guests: (d.guests ?? []).map((g: Obj) => ({ ...g, consoleUrl: null })),
         nodes: (d.nodes ?? []).map((n: Obj) => ({ ...n, ssl_fingerprint: undefined, details: n.details && { ...n.details, kernel: null } })),
         disks: (d.disks ?? []).map((k: Obj) => ({ ...k, serial: null })),
+        zfs: d.zfs ? (d.zfs as Obj[]).map((z) => ({ ...z, problems: [], devices: (z.devices ?? []).map((v: Obj) => (v.kind === "disk" ? { ...v, name: "disk" } : v)) })) : d.zfs,
         network: [],
         tasks: [],
         log: [],
