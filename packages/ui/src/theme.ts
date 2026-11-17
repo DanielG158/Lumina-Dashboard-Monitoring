@@ -5,8 +5,8 @@ export interface ThemeDef {
 }
 
 export const THEMES: ThemeDef[] = [
-  { id: "dark", name: "Dark", swatch: ["#0b0d12", "#13161e", "#7c9cff"] },
-  { id: "light", name: "Light", swatch: ["#f4f6fb", "#ffffff", "#3b6cf6"] },
+  { id: "dark", name: "Dark", swatch: ["#14121f", "#191c24", "#9d8cf7"] },
+  { id: "light", name: "Light", swatch: ["#2a2350", "#ffffff", "#6b4fd8"] },
   { id: "catppuccin", name: "Catppuccin", swatch: ["#1e1e2e", "#313244", "#cba6f7"] },
   { id: "nord", name: "Nord", swatch: ["#2e3440", "#3b4252", "#88c0d0"] },
 ];

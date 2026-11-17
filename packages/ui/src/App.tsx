@@ -3,7 +3,7 @@ import { io, type Socket } from "socket.io-client";
 import { useSpeedUnit } from "./components/UnitToggle";
 import { api, type AlertsPayload, type AuthStatus, type InstanceUpdate, type MaintenanceStatus, type ModuleInfo } from "./api";
 import { LoginDialog, SetupScreen } from "./components/AuthDialogs";
-import { LuminaMark } from "./components/Icons";
+import { Icon, LuminaMark } from "./components/Icons";
 import { ThemeMenu } from "./components/ThemeMenu";
 import { LuminaContext, canOf, roleOf, type Lumina } from "./context";
 import { AlertsPage } from "./pages/AlertsPage";
@@ -17,6 +17,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { applyTheme } from "./theme";
 import "./styles.css";
 
+const NAV_ICON: Record<string, string> = { overview: "dash", instances: "cube", alerts: "bell", energy: "bolt", network: "netcheck", maintenance: "wrench", settings: "gear", audit: "list" };
 const TABS = ["overview", "instances", "alerts", "energy", "network", "maintenance", "settings", "audit", "tv"] as const;
 type Tab = (typeof TABS)[number];
 const readTab = (): Tab => {
@@ -201,7 +202,8 @@ export function App() {
             <nav className="nav" aria-label="Sections">
               {tabs.map(([id, label]) => (
                 <button key={id} className={tab === id ? "on" : ""} onClick={() => go(id)}>
-                  {label}
+                  <Icon name={NAV_ICON[id] ?? "default"} size={17} />
+                  <span className="nav-label">{label}</span>
                   {id === "alerts" && live.length > 0 && <span className={`badge ${crit ? "" : "warn"}`}>{live.length}</span>}
                   {id === "maintenance" && (maintenance?.active.length ?? 0) > 0 && <span className="badge" style={{ background: "var(--accent)", color: "var(--on-accent)" }}>on</span>}
                 </button>
