@@ -92,5 +92,15 @@ check("it can be set up again", en2.status === 200);
 const off = await call("POST", "/api/auth/2fa/disable", { password: PW, code: en2.json.recoveryCodes[0] }, relog.cookie);
 check("and turned off with a recovery code", off.status === 200 && (await call("GET", "/api/auth/2fa", null, relog.cookie)).json.enabled === false);
 
+// someone signed in who keeps guessing on the account pages is stopped after 5 wrong tries
+let last = 0;
+for (let i = 0; i < 5; i++) last = (await call("POST", "/api/auth/2fa/setup", { password: "wrong wrong wrong" }, relog.cookie)).status;
+check("five wrong passwords on the two-factor page", last === 400);
+const blocked = await call("POST", "/api/auth/2fa/setup", { password: PW }, relog.cookie);
+check("then even the right password is refused for a while", blocked.status === 429, String(blocked.status));
+const changeBlocked = await call("POST", "/api/auth/password", { current: PW, next: "another long password" }, relog.cookie);
+check("and the password change is held too", changeBlocked.status === 429, String(changeBlocked.status));
+check("signing in is not affected", (await call("POST", "/api/auth/login", { username: "admin", password: PW })).status === 200);
+
 child.kill();
 process.exit(ok ? 0 : 1);

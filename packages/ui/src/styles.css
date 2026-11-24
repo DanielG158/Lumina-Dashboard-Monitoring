@@ -495,3 +495,6 @@ tbody tr:hover td { background: color-mix(in srgb, var(--accent) 7%, transparent
 }
 @media (max-width: 700px) { .nav button svg { display: none; } }
 .chip.on { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+
+/* the rail is dark in every theme, so the logo's navy gate needs its light value there */
+.topbar { --mark-gate: #7d92d8; }

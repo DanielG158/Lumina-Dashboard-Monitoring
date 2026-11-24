@@ -97,6 +97,7 @@ function fake(mode) {
       if (req.url === "/redfish/v1/Sessions/abc/" && req.method === "DELETE") { if (req.headers["x-auth-token"] === "webkey1") seen.logouts++; return send(200, {}); }
       if (req.url === "/json/health_drives" || req.url === "/json/health_phy_drives") {
         seen.jsonCalls++;
+        if (seen.failJson) return send(500, {});
         if (req.headers.cookie !== "sessionKey=webkey1") { seen.badCookie++; return send(401, {}); }
         return send(200, req.url === "/json/health_drives" ? { log_drive_arrays: [{ logical_drives: [{ ...web.log_drive_arrays[0].logical_drives[0], physical_drives: [0, 1] }, web.log_drive_arrays[0].logical_drives[1]] }] } : { phy_drive_arrays: [{ physical_drives: fakeDrives() }] });
       }
@@ -138,6 +139,34 @@ for (const mode of ["json", "redfish"]) {
   }
   await inst.dispose?.();
   check(`[${mode} login] the session is closed again when the instance stops`, f.seen.logouts >= 1, JSON.stringify(f.seen));
+  f.srv.close();
+}
+
+// a hiccup of the web pages must not hide the rebuild, and must not make drives look new when the pages come back
+{
+  const f = fake("json");
+  const { inst, d } = await load(f);
+  const base = Date.now; const t0 = base();
+  const at = (min) => { Date.now = () => t0 + min * 60_000; };
+  const count = d.storage.drives.length;
+  f.seen.failJson = true;
+  at(3);
+  let d2 = await inst.poll();
+  for (let i = 0; i < 10 && d2.storage?.webDetail !== true; i++) { await new Promise((r) => setTimeout(r, 200)); d2 = await inst.poll(); }
+  check("one failed read of the web pages still shows the rebuild from the last good answer", d2.storage?.logical?.[0]?.rebuilding === true && d2.storage.webDetail === true, JSON.stringify(d2.storage?.logical?.[0]));
+  at(30);
+  f.seen.failJson = true;
+  d2 = await inst.poll();
+  for (let i = 0; i < 15 && d2.storage?.webDetail !== false; i++) { await new Promise((r) => setTimeout(r, 200)); d2 = await inst.poll(); }
+  check("after a long outage the Redfish view is shown as it is", d2.storage?.webDetail === false, JSON.stringify({ webDetail: d2.storage?.webDetail }));
+  f.seen.failJson = false;
+  at(60);
+  d2 = await inst.poll();
+  for (let i = 0; i < 15 && d2.storage?.webDetail !== true; i++) { await new Promise((r) => setTimeout(r, 200)); d2 = await inst.poll(); }
+  const al2 = inst.alerts(d2).conditions;
+  check("when the pages come back, drives they list are not announced as new", d2.storage?.webDetail === true && d2.storage.drives.length === count && !al2.some((x) => /^drive-new:/.test(x.key)), JSON.stringify({ n: d2.storage?.drives.length, count, keys: al2.map((x) => x.key) }));
+  Date.now = base;
+  await inst.dispose?.();
   f.srv.close();
 }
 

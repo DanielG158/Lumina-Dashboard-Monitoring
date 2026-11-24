@@ -33,8 +33,11 @@ engine.acknowledge("Prox-1", "a", "dan", null);
 check("'until fixed' has no end", engine.active().find((x) => x.key === "a").acknowledged.until === null);
 
 // expiry
-kv.acks = Object.fromEntries(Object.entries(kv.acks).map(([k, v]) => [k, { ...v, until: Math.floor(Date.now() / 1000) - 5 }]));
+engine.acknowledge("Prox-1", "a", "dan", 3600);
+const realNow = Date.now;
+Date.now = () => realNow() + 2 * 3600_000;
 check("an expired acknowledgement stops counting", engine.active().find((x) => x.key === "a").acknowledged === null);
+Date.now = realNow;
 check("and is removed from storage", Object.keys(kv.acks).length === 0);
 
 // fixed: still announced, and no leftover

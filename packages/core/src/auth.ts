@@ -136,6 +136,15 @@ export function registerAuthRoutes(
   const ipThrottle = new Throttle(10, 15 * 60_000, 10 * 60_000);
   const pairThrottle = new Throttle(5, 15 * 60_000, 10 * 60_000);
   const nameThrottle = new Throttle(50, 15 * 60_000, 10 * 60_000);
+  // Someone already signed in who keeps getting their password or code wrong on the account pages (password change, two-factor):
+  // 5 wrong tries lock those checks for that account for 10 minutes. Sign-in itself is not affected.
+  const ownThrottle = new Throttle(5, 15 * 60_000, 10 * 60_000);
+  const locked = (reply: FastifyReply, userId: number) => {
+    const w = ownThrottle.locked(String(userId));
+    if (w > 0) void reply.code(429).send({ error: `Too many wrong tries. Try again in ${Math.ceil(w / 60)} minute(s).` });
+    return w > 0;
+  };
+  const verdict = (userId: number, good: boolean) => { if (good) ownThrottle.reset(String(userId)); else ownThrottle.fail(String(userId)); return good; };
 
   // The proxy's word is taken only when the operator said there is a proxy in front (LUMINA_TRUST_PROXY=1).
   const secureFlag = (req: FastifyRequest) => (req.protocol === "https" || (process.env.LUMINA_TRUST_PROXY === "1" && req.headers["x-forwarded-proto"] === "https") ? "; Secure" : "");
@@ -235,7 +244,8 @@ export function registerAuthRoutes(
     const body = z.object({ current: z.string().max(200), next: Password }).parse(req.body);
     const user = store.users.byId(req.user!.id);
     if (!user) return reply.code(400).send({ error: "Open access has no account — create an admin account first" });
-    if (!(await verifyPassword(body.current, user.passwordHash))) return reply.code(400).send({ error: "Current password is wrong" });
+    if (locked(reply, user.id)) return;
+    if (!verdict(user.id, await verifyPassword(body.current, user.passwordHash))) return reply.code(400).send({ error: "Current password is wrong" });
     store.users.setPassword(user.id, await hashPassword(body.next));
     store.sessions.deleteForUser(user.id);
     const fresh = auth.createSession(user.id, clientIp(req), (req.headers["user-agent"] as string | undefined) ?? null);
@@ -264,7 +274,8 @@ export function registerAuthRoutes(
     if (!u) return;
     const body = z.object({ password: z.string().max(200) }).parse(req.body);
     if (u.twoFactor) return reply.code(409).send({ error: "Two-factor sign-in is already on. Turn it off first to set it up again." });
-    if (!(await verifyPassword(body.password, u.passwordHash))) return reply.code(400).send({ error: "Password is wrong" });
+    if (locked(reply, u.id)) return;
+    if (!verdict(u.id, await verifyPassword(body.password, u.passwordHash))) return reply.code(400).send({ error: "Password is wrong" });
     const secret = newSecret();
     store.users.setPendingTotp(u.id, secret);
     return { secret, uri: otpauthUri(secret, u.username, store.settings.get<string>("siteName", "") || "Lumina") };
@@ -277,8 +288,9 @@ export function registerAuthRoutes(
     const body = z.object({ code: z.string().max(20) }).parse(req.body);
     const secret = store.users.pendingTotp(u.id);
     if (!secret) return reply.code(400).send({ error: "Start the setup first" });
+    if (locked(reply, u.id)) return;
     const step = matchStep(secret, body.code);
-    if (step === null) return reply.code(400).send({ error: "That code is not right. Check the clock on your phone and try the next code." });
+    if (!verdict(u.id, step !== null) || step === null) return reply.code(400).send({ error: "That code is not right. Check the clock on your phone and try the next code." });
     const rec = freshRecovery();
     store.users.enableTotp(u.id, secret, rec.hashes, step);
     audit(req, "2fa-enabled", u.username);
@@ -292,7 +304,8 @@ export function registerAuthRoutes(
     if (!u) return;
     const body = z.object({ password: z.string().max(200), code: z.string().max(40) }).parse(req.body);
     if (!u.twoFactor) return { ok: true };
-    if (!(await verifyOwn(u, body.password, body.code))) return reply.code(400).send({ error: "Password or code is wrong" });
+    if (locked(reply, u.id)) return;
+    if (!verdict(u.id, await verifyOwn(u, body.password, body.code))) return reply.code(400).send({ error: "Password or code is wrong" });
     store.users.disableTotp(u.id);
     audit(req, "2fa-disabled", u.username);
     return { ok: true };
@@ -303,7 +316,8 @@ export function registerAuthRoutes(
     if (!u) return;
     const body = z.object({ password: z.string().max(200), code: z.string().max(40) }).parse(req.body);
     if (!u.twoFactor) return reply.code(400).send({ error: "Two-factor sign-in is off" });
-    if (!(await verifyOwn(u, body.password, body.code))) return reply.code(400).send({ error: "Password or code is wrong" });
+    if (locked(reply, u.id)) return;
+    if (!verdict(u.id, await verifyOwn(u, body.password, body.code))) return reply.code(400).send({ error: "Password or code is wrong" });
     const rec = freshRecovery();
     store.users.setRecovery(u.id, rec.hashes);
     audit(req, "2fa-recovery-renewed", u.username);

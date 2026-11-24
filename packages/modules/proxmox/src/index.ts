@@ -343,7 +343,11 @@ export default defineModule<Config>({
                   const pools: ZfsPool[] = [];
                   for (const e of (list ?? []).slice(0, 24)) {
                     const detail = await pve.get<Record<string, unknown>>(`/nodes/${n.node}/disks/zfs/${encodeURIComponent(String(e.name))}`).catch(() => null);
-                    pools.push(parseZfsPool(n.node, e, detail));
+                    // A pool whose detail could not be read keeps its last known detail; without one, this node is "not known" this time
+                    // (an error here sends it to the last good answer below), so no resilver or data-error alert is closed by mistake.
+                    const before = lastZfs.get(n.node)?.find((x) => x.name === String(e.name));
+                    if (!detail && !before) throw new Error(`pool ${String(e.name)}: no detail`);
+                    pools.push(detail ? parseZfsPool(n.node, e, detail) : { ...before!, health: String(e.health ?? before!.health), size: Number(e.size) || before!.size, alloc: Number(e.alloc) || before!.alloc, free: Number(e.free) || before!.free });
                   }
                   lastZfs.set(n.node, pools);
                   return pools;
@@ -504,8 +508,8 @@ export default defineModule<Config>({
           })),
           // null when no node could be asked (then nothing is known, and nothing is resolved by mistake)
           zfs: perNode.some((p) => p.zfs !== null) ? perNode.flatMap((p) => p.zfs ?? []) : null,
-          /** true when some node could not be asked about its pools just now: their alerts are then left as they are */
-          zfsPartial: perNode.some((p) => p.zfs === null),
+          /** true when some node could not be asked about its pools just now (it failed to answer, or is offline): their alerts are then left as they are */
+          zfsPartial: perNode.some((p) => p.zfs === null) || nodes.some((n) => n.status !== "online"),
           ha: ha.map((h) => ({
             id: String(h.id ?? ""),
             type: String(h.type ?? ""),

@@ -255,22 +255,25 @@ export default defineModule<Config>({
       } catch (err) { note(`redfish login: ${msg(err)}`); }
       return false;
     }
-    // An iLO without these pages (iLO 5, or a login the web interface refuses) is not asked again for an hour.
+    // A login the iLO refuses, or an iLO without these pages (iLO 5 answers 404), is not asked again for an hour.
+    // A timeout or a server error is only a hiccup: the next try is two minutes away, and meanwhile the last good answer is used.
     let webOffUntil = 0;
     async function webJson(path: string, has: string): Promise<Obj | null> {
       if (Date.now() < webOffUntil) return null;
+      let lasting = false;
       try {
         for (let attempt = 0; attempt < 2; attempt++) {
-          if (!webKey && !(await webLogin())) break;
+          if (!webKey && !(await webLogin())) { lasting = true; break; }
           const res = await rawCall("GET", path, undefined, { cookie: `sessionKey=${webKey}` });
           let parsed: Obj | null = null;
           try { parsed = JSON.parse(res.body) as Obj; } catch { /* not JSON */ }
           note(`${path}: HTTP ${res.status}${parsed ? "" : ", not JSON"}${parsed && !parsed[has] ? ", nothing useful in it" : ""}`);
           if (res.status === 200 && parsed?.[has]) return parsed;
+          if (res.status === 404) lasting = true;
           await endWebSession(); // never leave a session behind on the iLO
         }
       } catch (err) { note(`${path}: ${msg(err)}`); }
-      webOffUntil = Date.now() + 3600_000;
+      webOffUntil = Date.now() + (lasting ? 3600_000 : 120_000);
       return null;
     }
     function web(path: string, has = "log_drive_arrays"): Promise<Obj | null> {
@@ -298,6 +301,7 @@ export default defineModule<Config>({
     }
 
     const seen: DriveMemory = { known: null, insertedAt: new Map() };
+    let lastWeb: { logPage: Obj; phyPage: Obj; at: number } | null = null;
 
     let lastPowerState: string | null = null;
     const RESET = "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset/";
@@ -405,11 +409,16 @@ export default defineModule<Config>({
             }
           }
           // The web pages add the state and role of each drive and what is rebuilding; without them the Redfish view is shown as it is.
-          const logPage = await web("/json/health_drives");
-          const phyPage = logPage ? await web("/json/health_phy_drives", "phy_drive_arrays") : null;
+          let logPage = await web("/json/health_drives");
+          let phyPage = logPage ? await web("/json/health_phy_drives", "phy_drive_arrays") : null;
+          const now = Date.now();
+          if (logPage && phyPage) lastWeb = { logPage, phyPage, at: now };
+          else if (lastWeb && now - lastWeb.at < 15 * 60_000) ({ logPage, phyPage } = lastWeb); // a short hiccup does not hide a rebuild or a failed drive
           const merged = mergeWebDrives({ logical, drives }, logPage, phyPage);
-          // A drive that appears while Lumina is watching is new: it is pointed out for a day.
-          noteNewDrives(seen, merged.drives.map((d) => String(d.serial ?? d.location)), Date.now());
+          // A drive that appears while Lumina is watching is new: it is pointed out for a day. While the web pages are missing, the
+          // drives only they list are kept as known, so they do not come back as "new" when the pages return.
+          const ids = merged.drives.map((d) => String(d.serial ?? d.location));
+          noteNewDrives(seen, phyPage || !seen.known ? ids : [...new Set([...seen.known, ...ids])], now);
           for (const d of merged.drives) d.insertedAt = seen.insertedAt.get(String(d.serial ?? d.location)) ?? null;
           return { health: root.Status?.Health ?? null, controllers, logical: merged.logical, drives: merged.drives, webDetail: Boolean(phyPage) };
         },

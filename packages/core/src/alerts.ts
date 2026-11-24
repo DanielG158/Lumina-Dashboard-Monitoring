@@ -77,14 +77,23 @@ export class AlertEngine {
       .sort((a, b) => b.since - a.since);
   }
 
-  /** Acknowledgements that still count: not expired, and the alert is still there. Stale ones are dropped from storage. */
+  private acks: Record<string, Ack> | null = null;
+
+  /** Acknowledgements that still count: not expired, and the alert is still there. Kept in memory; storage changes only when they do. */
   private liveAcks(): Record<string, Ack> {
-    const all = this.store.settings.get<Record<string, Ack>>("acks", {});
+    const all = (this.acks ??= this.store.settings.get<Record<string, Ack>>("acks", {}));
     const nowS = Math.floor(Date.now() / 1000);
+    const ids = Object.keys(all);
+    if (!ids.length) return all;
     const open = new Set([...this.firing.values()].map((a) => String(a.id)));
     const keep = Object.fromEntries(Object.entries(all).filter(([id, a]) => open.has(id) && (a.until === null || a.until > nowS)));
-    if (Object.keys(keep).length !== Object.keys(all).length) this.store.settings.set("acks", keep);
-    return keep;
+    if (Object.keys(keep).length !== ids.length) this.saveAcks(keep);
+    return this.acks!;
+  }
+
+  private saveAcks(acks: Record<string, Ack>) {
+    this.acks = acks;
+    this.store.settings.set("acks", acks);
   }
 
   /** Acknowledge one firing alert. `seconds` null means until it is fixed. Returns false when there is no such alert. */
@@ -92,7 +101,7 @@ export class AlertEngine {
     const a = this.firing.get(`${instanceId}\u0000${key}`);
     if (!a) return false;
     const now = Math.floor(Date.now() / 1000);
-    this.store.settings.set("acks", { ...this.liveAcks(), [String(a.id)]: { by, at: now, until: seconds === null ? null : now + seconds } });
+    this.saveAcks({ ...this.liveAcks(), [String(a.id)]: { by, at: now, until: seconds === null ? null : now + seconds } });
     this.io.emit("alerts:changed");
     return true;
   }
@@ -101,7 +110,7 @@ export class AlertEngine {
     const a = this.firing.get(`${instanceId}\u0000${key}`);
     if (!a) return false;
     const { [String(a.id)]: _gone, ...rest } = this.liveAcks();
-    this.store.settings.set("acks", rest);
+    this.saveAcks(rest);
     this.io.emit("alerts:changed");
     return true;
   }

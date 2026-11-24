@@ -54,10 +54,10 @@ let zfsMode = "ok";
 const srv = https.createServer({ key: readFileSync(join(dir, "k.pem")), cert: readFileSync(join(dir, "c.pem")) }, (q, s) => {
   const send = (code, obj) => { s.statusCode = code; s.setHeader("content-type", "application/json"); s.end(JSON.stringify(obj)); };
   const p = q.url.replace("/api2/json", "");
-  if (p === "/nodes") return send(200, { data: [{ node: "pve", status: "online", cpu: 0.1, mem: 1e9, maxmem: 8e9, disk: 1e9, maxdisk: 1e10, uptime: 100 }] });
+  if (p === "/nodes") return send(200, { data: [{ node: "pve", status: "online", cpu: 0.1, mem: 1e9, maxmem: 8e9, disk: 1e9, maxdisk: 1e10, uptime: 100 }, ...(zfsMode === "offline-node" ? [{ node: "pve2", status: "offline" }] : [])] });
   if (p === "/cluster/resources") return send(200, { data: [] });
-  if (p === "/nodes/pve/disks/zfs") return zfsMode === "broken" ? send(500, {}) : send(200, { data: zfsMode === "none" ? [] : [{ ...healthyEntry, health: zfsMode === "degraded" ? "DEGRADED" : "ONLINE" }] });
-  if (p === "/nodes/pve/disks/zfs/tank") return send(200, { data: zfsMode === "degraded" ? degradedDetail : healthyDetail });
+  if (p === "/nodes/pve/disks/zfs") return zfsMode === "broken" ? send(500, {}) : send(200, { data: zfsMode === "none" ? [] : [{ ...healthyEntry, health: zfsMode === "degraded" || zfsMode === "detail-fails" ? "DEGRADED" : "ONLINE" }] });
+  if (p === "/nodes/pve/disks/zfs/tank") return zfsMode === "detail-fails" ? send(500, {}) : send(200, { data: zfsMode === "degraded" ? degradedDetail : healthyDetail });
   send(200, { data: [] });
 }).listen(0, "127.0.0.1");
 await new Promise((r) => srv.once("listening", r));
@@ -79,6 +79,22 @@ await inst.dispose?.();
 inst = await make(); data = await inst.poll();
 const r2 = inst.alerts(data);
 check("when the host cannot be asked, nothing is known and existing ZFS alerts are left alone", data.zfs === null && data.zfsPartial === true && !Array.isArray(r2) && r2.unknown.includes("zfs:") && data.warnings.length === 0, JSON.stringify({ zfs: data.zfs, partial: data.zfsPartial }));
+await inst.dispose?.();
+// a node that is offline cannot be asked: its pool alerts must be left alone, not closed as fixed
+zfsMode = "offline-node"; inst = await make(); data = await inst.poll();
+const r3 = inst.alerts(data);
+check("an offline node makes the ZFS answer partial, so its alerts are not closed", data.zfsPartial === true && !Array.isArray(r3) && r3.unknown.includes("zfs:") && r3.unknown.includes("zfs-data:"), JSON.stringify({ partial: data.zfsPartial }));
+await inst.dispose?.();
+
+// a pool whose detail cannot be read keeps what was known; with nothing known the node counts as not asked
+zfsMode = "degraded"; inst = await make(); data = await inst.poll();
+check("(setup) the degraded pool with its resilver is known", data.zfs?.[0]?.activity?.kind === "resilver");
+zfsMode = "detail-fails";
+await new Promise((r) => setTimeout(r, 0));
+const cacheBust = await make();
+const first = await cacheBust.poll();
+check("with no earlier detail, a failed detail read leaves the node 'not known' instead of a pool without its resilver or errors", first.zfs === null && first.zfsPartial === true, JSON.stringify({ zfs: first.zfs, partial: first.zfsPartial }));
+await cacheBust.dispose?.();
 await inst.dispose?.();
 zfsMode = "none"; inst = await make(); data = await inst.poll();
 check("a host without ZFS simply has no pools", Array.isArray(data.zfs) && data.zfs.length === 0 && data.zfsPartial === false);
